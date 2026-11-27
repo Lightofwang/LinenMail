@@ -1,0 +1,94 @@
+name: Build Windows EXE (LinenMail)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64 Installer & Portable EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Ensure Cargo.lock exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "src-tauri/Cargo.lock")) {
+            cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+          }
+
+      - name: Rust build cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build Tauri Windows NSIS Installer & EXE
+        run: npm run tauri:build:nsis
+
+      - name: Package NSIS Installer and Portable EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "release-assets" | Out-Null
+          New-Item -ItemType Directory -Force -Path "portable-staging" | Out-Null
+
+          # 1. Copy NSIS setup installer (.exe)
+          $nsisFiles = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Filter "*.exe"
+          if (-not $nsisFiles) {
+            throw "NSIS installer .exe was not found in src-tauri/target/release/bundle/nsis"
+          }
+          foreach ($file in $nsisFiles) {
+            Copy-Item -Path $file.FullName -Destination "release-assets/$($file.Name)" -Force
+          }
+
+          # 2. Copy standalone portable .exe and package portable zip (with portable.flag)
+          $exePath = "src-tauri/target/release/linenmail.exe"
+          if (-not (Test-Path $exePath)) {
+            throw "Standalone linenmail.exe was not found in src-tauri/target/release"
+          }
+          Copy-Item -Path $exePath -Destination "release-assets/LinenMail-x64-portable.exe" -Force
+          Copy-Item -Path $exePath -Destination "portable-staging/linenmail.exe" -Force
+          New-Item -ItemType File -Path "portable-staging/portable.flag" -Force | Out-Null
+          Compress-Archive -Path "portable-staging/*" -DestinationPath "release-assets/LinenMail-x64-portable.zip" -Force
+
+          Write-Host "Generated Windows release assets:"
+          Get-ChildItem -Path "release-assets" | Format-Table Name, Length -AutoSize
+
+      - name: Upload Windows EXE Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinenMail-Windows-x64
+          path: release-assets/*
+          retention-days: 30
+
+      - name: Create GitHub Release (on v* tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false

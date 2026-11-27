@@ -51,7 +51,7 @@ pub fn test_connection_blocking(input: &TestConnectionInput) -> TestConnectionRe
             success: false,
             imap_ok: false,
             smtp_ok: false,
-            latency_ms: start.elapsed().as_millis(),
+            latency_ms: start.elapsed().as_millis() as u64,
             message: err,
         };
     }
@@ -68,7 +68,7 @@ pub fn test_connection_blocking(input: &TestConnectionInput) -> TestConnectionRe
         Ok(())
     })();
 
-    let latency_ms = start.elapsed().as_millis();
+    let latency_ms = start.elapsed().as_millis() as u64;
     match smtp_res {
         Ok(()) => TestConnectionResult {
             success: true,
@@ -167,7 +167,7 @@ pub fn sync_account_blocking(
         .join(",");
 
     let fetches = session
-        .uid_fetch(&uid_set, "(UID FLAGS RFC822)")
+        .uid_fetch(&uid_set, "(UID FLAGS BODY.PEEK[])")
         .map_err(|e| format!("拉取邮件内容失败: {}", e))?;
 
     let mut fetched_count = 0usize;
@@ -387,7 +387,7 @@ pub fn refetch_attachment_blocking(
     session.select("INBOX").map_err(|e| format!("打开收件箱失败: {}", e))?;
 
     let fetches = session
-        .uid_fetch(remote_uid.to_string(), "RFC822")
+        .uid_fetch(remote_uid.to_string(), "BODY.PEEK[]")
         .map_err(|e| format!("拉取原邮件失败: {}", e))?;
     let raw = fetches
         .iter()

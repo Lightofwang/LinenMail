@@ -112,7 +112,7 @@ pub struct TestConnectionResult {
     pub success: bool,
     pub imap_ok: bool,
     pub smtp_ok: bool,
-    pub latency_ms: u128,
+    pub latency_ms: u64,
     pub message: String,
 }
 

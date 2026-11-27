@@ -2,7 +2,19 @@
 
 本项目已完整配置 **Tauri v2 + Rust + 嵌入式 SQLite** 桌面端工程，可在 Windows 10 / 11 上直接编译打包为：
 1. **NSIS 简体中文安装程序**（`LinenMail_1.0.0_x64-setup.exe`）
-2. **绿色免安装单文件便携版**（`linenmail.exe`）
+2. **绿色免安装单文件便携版**（`LinenMail-x64-portable.exe` / `LinenMail-x64-portable.zip`）
+
+---
+
+## 0. GitHub Actions 云端自动编译（推荐，免配置本地环境）
+
+仓库已内置自动化编译流程 `.github/workflows/build-windows.yml`：
+- **每次推送到 `main` / `master` 分支**（或进入 GitHub 仓库 **Actions → Build Windows EXE (LinenMail) → Run workflow** 手动触发），GitHub 云端 Windows 服务器会自动编译打包。
+- 编译完成后（约 5～8 分钟），在对应构建记录底部的 **Artifacts** 中点击下载 `LinenMail-Windows-x64`，解压即可得到：
+  - `LinenMail_1.0.0_x64-setup.exe`（Windows 安装包）
+  - `LinenMail-x64-portable.exe`（绿色单文件运行版）
+  - `LinenMail-x64-portable.zip`（含 `portable.flag` 的 U 盘随身便携压缩包）
+- 如需自动发布到 GitHub **Releases** 页面，只需在仓库中创建并推送一个版本号标签（例如 `v1.0.0`），流水线会自动生成 Release 并附上上述安装包。
 
 ---
 
