@@ -298,6 +298,8 @@ impl Database {
                 desktop_notifications: true,
                 cache_bytes: 0,
                 db_size_bytes: 0,
+                translation_engine: "free".into(),
+                translation_target_lang: "auto".into(),
             };
             self.set_kv("system_settings", &default_settings)?;
         }

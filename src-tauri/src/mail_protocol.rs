@@ -583,7 +583,7 @@ fn repair_stored_replacement_emails<T: std::io::Read + std::io::Write>(
                 continue;
             };
             let repaired_raw = repair_raw_mime_cesu8(raw);
-            let Some(parsed) = parser.parse(&repaired_raw) else {
+            let Some(parsed) = parser.parse(&*repaired_raw) else {
                 continue;
             };
 
@@ -736,7 +736,7 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
             continue;
         };
         let repaired_raw = repair_raw_mime_cesu8(raw);
-        let Some(parsed) = parser.parse(&repaired_raw) else {
+        let Some(parsed) = parser.parse(&*repaired_raw) else {
             continue;
         };
 
