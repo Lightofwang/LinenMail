@@ -119,6 +119,8 @@ pub fn sync_account_blocking(
         return Ok((0, vec![]));
     }
 
+    let is_initial_sync = rec.last_uid == 0;
+
     let tls = TlsConnector::builder()
         .build()
         .map_err(|e| format!("TLS 初始化失败: {}", e))?;
@@ -132,7 +134,7 @@ pub fn sync_account_blocking(
         .select("INBOX")
         .map_err(|e| format!("打开收件箱失败: {}", e))?;
 
-    let uid_query = if rec.last_uid > 0 {
+    let uid_query = if !is_initial_sync {
         format!("UID {}:*", rec.last_uid + 1)
     } else {
         "ALL".to_string()
@@ -147,7 +149,7 @@ pub fn sync_account_blocking(
     uids.sort_unstable();
 
     // On initial sync, keep it snappy by pulling the latest 30 messages
-    if rec.last_uid == 0 && uids.len() > 30 {
+    if is_initial_sync && uids.len() > 30 {
         uids = uids.split_off(uids.len() - 30);
     }
 
@@ -160,6 +162,102 @@ pub fn sync_account_blocking(
         return Ok((0, vec![]));
     }
 
+    // Never emit Windows desktop notifications during initial sync!
+    let (fetched_count, max_uid, notifications) = fetch_and_store_uids(
+        &mut session,
+        db_mutex,
+        rec,
+        &uids,
+        rec.last_uid,
+        !is_initial_sync,
+    )?;
+
+    let now_str = Local::now().format("%H:%M:%S").to_string();
+    if let Ok(db) = db_mutex.lock() {
+        let _ = db.update_account_sync_cursor(&rec.account.id, max_uid, &now_str);
+    }
+    let _ = session.logout();
+    Ok((fetched_count, notifications))
+}
+
+/// Silently loads one batch of older historical emails strictly before the oldest
+/// locally synced UID for this account. Never triggers desktop notifications.
+pub fn load_older_emails_blocking(
+    db_mutex: &Mutex<Database>,
+    rec: &AccountSecretRecord,
+    batch_size: usize,
+) -> Result<(usize, bool), String> {
+    let host = rec.account.imap_host.as_deref().unwrap_or("").trim();
+    let port = rec.account.imap_port.unwrap_or(993);
+    if host.is_empty() || rec.auth_code.is_empty() {
+        return Ok((0, false));
+    }
+
+    let oldest_uid = {
+        let db = db_mutex.lock().map_err(|_| "数据库锁异常".to_string())?;
+        db.get_oldest_remote_uid(&rec.account.id)
+    };
+
+    if oldest_uid == Some(1) {
+        return Ok((0, false));
+    }
+
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|e| format!("TLS 初始化失败: {}", e))?;
+    let client = imap::connect((host, port), host, &tls)
+        .map_err(|e| format!("连接 {} 失败: {}", host, e))?;
+    let mut session = client
+        .login(&rec.account.email, &rec.auth_code)
+        .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
+
+    session
+        .select("INBOX")
+        .map_err(|e| format!("打开收件箱失败: {}", e))?;
+
+    let uid_query = match oldest_uid {
+        Some(min_u) if min_u > 1 => format!("UID 1:{}", min_u - 1),
+        _ => "ALL".to_string(),
+    };
+
+    let mut uids: Vec<u32> = session
+        .uid_search(&uid_query)
+        .map_err(|e| format!("检索历史邮件 UID 失败: {}", e))?
+        .into_iter()
+        .filter(|&u| match oldest_uid {
+            Some(min_u) => u < min_u,
+            None => true,
+        })
+        .collect();
+    uids.sort_unstable();
+
+    if uids.is_empty() {
+        let _ = session.logout();
+        return Ok((0, false));
+    }
+
+    let limit = batch_size.clamp(10, 100);
+    let has_more = uids.len() > limit;
+    if has_more {
+        uids = uids.split_off(uids.len() - limit);
+    }
+
+    // Always silent: collect_notifications = false
+    let (fetched_count, _max_uid, _notifs) =
+        fetch_and_store_uids(&mut session, db_mutex, rec, &uids, rec.last_uid, false)?;
+
+    let _ = session.logout();
+    Ok((fetched_count, has_more))
+}
+
+fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
+    session: &mut imap::Session<T>,
+    db_mutex: &Mutex<Database>,
+    rec: &AccountSecretRecord,
+    uids: &[u32],
+    initial_max_uid: u32,
+    collect_notifications: bool,
+) -> Result<(usize, u32, Vec<SyncedMailNotification>), String> {
     let uid_set = uids
         .iter()
         .map(|u| u.to_string())
@@ -171,7 +269,7 @@ pub fn sync_account_blocking(
         .map_err(|e| format!("拉取邮件内容失败: {}", e))?;
 
     let mut fetched_count = 0usize;
-    let mut max_uid = rec.last_uid;
+    let mut max_uid = initial_max_uid;
     let mut notifications = Vec::new();
     let parser = MessageParser::default();
 
@@ -208,16 +306,82 @@ pub fn sync_account_blocking(
             })
             .unwrap_or_else(|| ("未知发件人".into(), "unknown@unknown".into()));
 
-        let recipient_str = parsed
-            .to()
-            .and_then(|a| a.first())
-            .and_then(|addr| addr.address())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| rec.account.email.clone());
+        let mut harvested_contacts: Vec<DirectoryContact> = Vec::new();
+        let now_contact_ts = Local::now().format("%Y-%m-%d %H:%M").to_string();
+        if sender_email.contains('@') && sender_email != "unknown@unknown" {
+            harvested_contacts.push(DirectoryContact {
+                email: sender_email.to_lowercase(),
+                name: sender_name.clone(),
+                role: String::new(),
+                department: String::new(),
+                source: "email".into(),
+                updated_at: now_contact_ts.clone(),
+            });
+        }
+
+        let mut to_emails: Vec<String> = Vec::new();
+        if let Some(to_field) = parsed.to() {
+            for addr in to_field.iter() {
+                if let Some(email_addr) = addr.address() {
+                    let clean_email = email_addr.trim().to_lowercase();
+                    if clean_email.contains('@') {
+                        to_emails.push(clean_email.clone());
+                        let name = addr
+                            .name()
+                            .map(|n| decode_html_entities(n.trim()))
+                            .filter(|n| !n.is_empty())
+                            .unwrap_or_default();
+                        harvested_contacts.push(DirectoryContact {
+                            email: clean_email,
+                            name,
+                            role: String::new(),
+                            department: String::new(),
+                            source: "email".into(),
+                            updated_at: now_contact_ts.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        let recipient_str = if to_emails.is_empty() {
+            rec.account.email.clone()
+        } else {
+            to_emails.join(", ")
+        };
+
+        let mut cc_emails: Vec<String> = Vec::new();
+        if let Some(cc_field) = parsed.cc() {
+            for addr in cc_field.iter() {
+                if let Some(email_addr) = addr.address() {
+                    let clean_email = email_addr.trim().to_lowercase();
+                    if clean_email.contains('@') {
+                        cc_emails.push(clean_email.clone());
+                        let name = addr
+                            .name()
+                            .map(|n| decode_html_entities(n.trim()))
+                            .filter(|n| !n.is_empty())
+                            .unwrap_or_default();
+                        harvested_contacts.push(DirectoryContact {
+                            email: clean_email,
+                            name,
+                            role: String::new(),
+                            department: String::new(),
+                            source: "email".into(),
+                            updated_at: now_contact_ts.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        let cc_opt = if cc_emails.is_empty() {
+            None
+        } else {
+            Some(cc_emails.join(", "))
+        };
 
         let subject = parsed
             .subject()
-            .map(|s| s.trim().to_string())
+            .map(|s| decode_html_entities(s.trim()))
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "（无主题）".into());
 
@@ -227,7 +391,7 @@ pub fn sync_account_blocking(
             .unwrap_or_else(|| Local::now().timestamp_millis());
 
         let plain_body = if let Some(text) = parsed.body_text(0) {
-            text.into_owned()
+            decode_html_entities(&text)
         } else if let Some(html) = parsed.body_html(0) {
             strip_html_safely(&html)
         } else {
@@ -305,7 +469,7 @@ pub fn sync_account_blocking(
             sender: sender_name.clone(),
             email: sender_email,
             recipient: Some(recipient_str),
-            cc: None,
+            cc: cc_opt,
             avatar_img: None,
             initials,
             subject: subject.clone(),
@@ -330,9 +494,10 @@ pub fn sync_account_blocking(
         }
 
         db.insert_email(&mail, msg_id.as_deref())?;
+        let _ = db.upsert_directory_contacts_batch(&harvested_contacts);
         fetched_count += 1;
 
-        if mail.unread && !mail.archived {
+        if collect_notifications && mail.unread && !mail.archived {
             notifications.push(SyncedMailNotification {
                 sender: mail.sender,
                 subject: mail.subject,
@@ -340,12 +505,7 @@ pub fn sync_account_blocking(
         }
     }
 
-    let now_str = Local::now().format("%H:%M:%S").to_string();
-    if let Ok(db) = db_mutex.lock() {
-        let _ = db.update_account_sync_cursor(&rec.account.id, max_uid, &now_str);
-    }
-    let _ = session.logout();
-    Ok((fetched_count, notifications))
+    Ok((fetched_count, max_uid, notifications))
 }
 
 pub fn sync_flag_to_imap_blocking(
@@ -585,24 +745,41 @@ pub fn send_email_blocking(
     };
 
     db.insert_email(&mail, None)?;
+
+    // Harvest sent recipients & cc into directory_contacts for instant autocomplete
+    let now_contact_ts = Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let mut sent_contacts: Vec<DirectoryContact> = Vec::new();
+    for rcpt in &payload.recipients {
+        for (n, e) in crate::db::parse_address_list_str(rcpt) {
+            sent_contacts.push(DirectoryContact {
+                email: e,
+                name: n,
+                role: String::new(),
+                department: String::new(),
+                source: "email".into(),
+                updated_at: now_contact_ts.clone(),
+            });
+        }
+    }
+    if !payload.cc.trim().is_empty() {
+        for (n, e) in crate::db::parse_address_list_str(&payload.cc) {
+            sent_contacts.push(DirectoryContact {
+                email: e,
+                name: n,
+                role: String::new(),
+                department: String::new(),
+                source: "email".into(),
+                updated_at: now_contact_ts.clone(),
+            });
+        }
+    }
+    let _ = db.upsert_directory_contacts_batch(&sent_contacts);
+
     Ok(mail)
 }
 
-fn infer_default_tag(subject: &str) -> String {
-    let s = subject.to_lowercase();
-    if s.contains("发票") || s.contains("账单") || s.contains("invoice") || s.contains("receipt") {
-        "财务票据".into()
-    } else if s.contains("会议") || s.contains("日程") || s.contains("calendar") {
-        "日程通知".into()
-    } else if s.contains("测试") || s.contains("发布") || s.contains("研发") || s.contains("github") {
-        "工程研发".into()
-    } else if s.contains("周刊") || s.contains("digest") || s.contains("newsletter") {
-        "精选订阅".into()
-    } else if s.contains("合作") || s.contains("品牌") || s.contains("协议") {
-        "品牌合作".into()
-    } else {
-        "设计评审".into()
-    }
+fn infer_default_tag(_subject: &str) -> String {
+    String::new()
 }
 
 /// Safe, zero-dependency HTML-to-plain-text extractor so untrusted HTML emails
@@ -646,10 +823,41 @@ fn strip_html_safely(html: &str) -> String {
         }
     }
 
-    out.replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
+    decode_html_entities(&out)
+}
+
+pub fn decode_html_entities(input: &str) -> String {
+    let mut cur = input.replace('\u{00a0}', " ");
+    for _ in 0..3 {
+        if !cur.contains('&') {
+            break;
+        }
+        let next = cur
+            .replace("&amp;", "&")
+            .replace("&AMP;", "&")
+            .replace("&nbsp;", " ")
+            .replace("&NBSP;", " ")
+            .replace("&Nbsp;", " ")
+            .replace("&#160;", " ")
+            .replace("&#xA0;", " ")
+            .replace("&#xa0;", " ")
+            .replace("&#x00A0;", " ")
+            .replace("&#x00a0;", " ")
+            .replace("&ensp;", " ")
+            .replace("&emsp;", " ")
+            .replace("&thinsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&mdash;", "—")
+            .replace("&ndash;", "–")
+            .replace("&hellip;", "…");
+        if next == cur {
+            break;
+        }
+        cur = next;
+    }
+    cur
 }

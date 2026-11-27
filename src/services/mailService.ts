@@ -3,14 +3,19 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import {
   AccountConfigInput,
   CacheStats,
+  CardDavConfigInput,
+  CardDavConfigState,
   ConnectedAccount,
   ContactAttachment,
   ContactItem,
+  ContactSyncResult,
+  DirectoryContact,
   DraftItem,
   EmailAttachment,
   EmailItem,
   FilterRuleItem,
   LlmProfile,
+  LoadOlderResult,
   ScheduledEmailItem,
   SendEmailPayload,
   SmartFolderItem,
@@ -86,6 +91,52 @@ export const EMAIL_PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   },
 };
 
+export interface CardDavPreset {
+  id: string;
+  label: string;
+  serverUrl: string;
+  hint: string;
+}
+
+export const CARDDAV_PRESETS: CardDavPreset[] = [
+  {
+    id: 'exmail_qq',
+    label: '企业微信 / 腾讯企业邮',
+    serverUrl: 'https://dav.exmail.qq.com',
+    hint: '使用企业邮箱账号 + 客户端专用密码（默认自动复用已连接的邮箱凭证）',
+  },
+  {
+    id: 'qq',
+    label: 'QQ 邮箱',
+    serverUrl: 'https://carddav.qq.com',
+    hint: '使用 QQ 邮箱账号与授权码同步通讯录',
+  },
+  {
+    id: 'qiye163',
+    label: '网易企业邮',
+    serverUrl: 'https://dav.qiye.163.com',
+    hint: '支持网易企业邮箱 CardDAV 通讯录同步',
+  },
+  {
+    id: 'alimail',
+    label: '阿里企业邮',
+    serverUrl: 'https://dav.alimail.com',
+    hint: '使用阿里企业邮箱账号与客户端密码同步',
+  },
+  {
+    id: 'icloud',
+    label: 'iCloud 通讯录',
+    serverUrl: 'https://contacts.icloud.com',
+    hint: '需使用 Apple ID 与 App 专用密码',
+  },
+  {
+    id: 'custom',
+    label: '自定义 CardDAV',
+    serverUrl: '',
+    hint: '填写任意标准 RFC 6352 CardDAV 服务器地址（如 Nextcloud / 自建邮局）',
+  },
+];
+
 export function isTauriRuntime(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -152,16 +203,35 @@ function guessAttachmentIcon(name: string): string {
   return 'description';
 }
 
+function extractEmailsFromHeaderStr(raw?: string | null): string[] {
+  if (!raw) return [];
+  const out: string[] = [];
+  for (const part of raw.split(/[,;]/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const match = trimmed.match(/<([^>]+)>/);
+    const addr = (match ? match[1] : trimmed).replace(/^"|"$/g, '').trim().toLowerCase();
+    if (addr.includes('@') && !addr.includes(' ')) {
+      out.push(addr);
+    }
+  }
+  return out;
+}
+
 /**
- * Merges static/seeded contacts with live contacts & attachments aggregated from all local SQLite emails.
+ * Merges static/seeded contacts, SQLite directory contacts (CardDAV / VCF / CSV / harvested To & Cc),
+ * and live email threads & attachments into a unified ContactItem list.
  */
 export function aggregateContactsFromEmails(
   emails: EmailItem[],
   seedContacts: ContactItem[],
-  starredEmails: string[]
+  starredEmails: string[],
+  directoryContacts: DirectoryContact[] = [],
+  primaryEmail = ''
 ): ContactItem[] {
   const byEmail = new Map<string, ContactItem>();
   const starSet = new Set(starredEmails.map((s) => s.toLowerCase()));
+  const myDomain = primaryEmail.includes('@') ? primaryEmail.split('@')[1].toLowerCase() : '';
 
   for (const c of seedContacts) {
     const key = c.email.toLowerCase();
@@ -173,6 +243,67 @@ export function aggregateContactsFromEmails(
     });
   }
 
+  for (const dc of directoryContacts) {
+    const key = dc.email.trim().toLowerCase();
+    if (!key || !key.includes('@') || key === 'unknown@unknown') continue;
+    const domain = key.split('@')[1] || '外部联系人';
+    const localPart = key.split('@')[0] || key;
+    const displayName = dc.name.trim() || localPart;
+    const isTeam =
+      dc.source === 'carddav' ||
+      dc.source === 'import' ||
+      (myDomain !== '' && domain === myDomain);
+    const roleLabel =
+      [dc.department, dc.role].filter(Boolean).join(' · ') ||
+      (dc.source === 'carddav'
+        ? '企业通讯录'
+        : dc.source === 'import'
+        ? '已导入通讯录'
+        : domain);
+    const normalizedSource: 'carddav' | 'import' | 'email' =
+      dc.source === 'carddav' ? 'carddav' : dc.source === 'import' ? 'import' : 'email';
+
+    const existing = byEmail.get(key);
+    if (!existing) {
+      byEmail.set(key, {
+        id: `contact-${key}`,
+        name: displayName,
+        role: roleLabel,
+        department: dc.department || '',
+        source: normalizedSource,
+        email: key,
+        avatarImg: null,
+        initials: displayName.charAt(0).toUpperCase() || '联',
+        group: isTeam ? 'team' : 'partner',
+        groupLabel:
+          dc.source === 'carddav'
+            ? '企业通讯录'
+            : dc.source === 'import'
+            ? '导入通讯录'
+            : isTeam
+            ? '团队协作'
+            : '往来联系人',
+        starred: starSet.has(key),
+        lastActive: dc.updatedAt || '通讯录',
+        attachments: [],
+        threads: [],
+      });
+    } else {
+      const existingIsFallback = existing.name.toLowerCase() === localPart;
+      if (existingIsFallback && displayName.toLowerCase() !== localPart) {
+        existing.name = displayName;
+        existing.initials = displayName.charAt(0).toUpperCase();
+      }
+      if (dc.department) existing.department = dc.department;
+      if (dc.role || dc.department) existing.role = roleLabel;
+      if (normalizedSource === 'carddav' || normalizedSource === 'import') {
+        existing.source = normalizedSource;
+        existing.group = 'team';
+        existing.groupLabel = normalizedSource === 'carddav' ? '企业通讯录' : '导入通讯录';
+      }
+    }
+  }
+
   for (const mail of emails) {
     const key = mail.email.trim().toLowerCase();
     if (!key || key === 'unknown@unknown') continue;
@@ -181,21 +312,42 @@ export function aggregateContactsFromEmails(
     const cleanName = mail.sender.replace(/^我\s*→\s*/, '').trim() || key.split('@')[0];
     if (!contact) {
       const domain = key.split('@')[1] || '外部联系人';
+      const isSameCompany = myDomain !== '' && domain === myDomain;
       contact = {
         id: `contact-${key}`,
         name: cleanName,
         role: domain,
+        source: 'email',
         email: mail.email,
         avatarImg: mail.avatarImg,
         initials: mail.initials || cleanName.charAt(0).toUpperCase(),
-        group: domain.includes('atelier') || domain.includes('nexus') ? 'team' : 'partner',
-        groupLabel: domain.includes('atelier') || domain.includes('nexus') ? '团队协作' : '往来联系人',
+        group:
+          isSameCompany || domain.includes('atelier') || domain.includes('nexus')
+            ? 'team'
+            : 'partner',
+        groupLabel:
+          isSameCompany || domain.includes('atelier') || domain.includes('nexus')
+            ? '团队协作'
+            : '往来联系人',
         starred: starSet.has(key),
         lastActive: mail.fullTime,
         attachments: [],
         threads: [],
       };
       byEmail.set(key, contact);
+    } else {
+      const localPart = key.split('@')[0];
+      if (
+        contact.name.toLowerCase() === localPart &&
+        cleanName.toLowerCase() !== localPart &&
+        !cleanName.includes('@')
+      ) {
+        contact.name = cleanName;
+        contact.initials = cleanName.charAt(0).toUpperCase();
+      }
+      if (!contact.lastActive || contact.lastActive === '通讯录') {
+        contact.lastActive = mail.fullTime;
+      }
     }
 
     if (!contact.threads.some((t) => t.emailId === mail.id || t.subject === mail.subject)) {
@@ -215,7 +367,11 @@ export function aggregateContactsFromEmails(
         : [];
 
     for (const att of mailAtts) {
-      if (!contact.attachments.some((a) => (att.id && a.id === att.id) || (a.name === att.name && a.emailId === mail.id))) {
+      if (
+        !contact.attachments.some(
+          (a) => (att.id && a.id === att.id) || (a.name === att.name && a.emailId === mail.id)
+        )
+      ) {
         const entry: ContactAttachment = {
           id: att.id,
           name: att.name,
@@ -227,6 +383,48 @@ export function aggregateContactsFromEmails(
           contentBase64: att.contentBase64,
         };
         contact.attachments.unshift(entry);
+      }
+    }
+
+    // Also harvest To & Cc participants from emails in case directoryContacts hasn't synced them yet
+    const otherAddresses = [
+      ...extractEmailsFromHeaderStr(mail.recipient),
+      ...extractEmailsFromHeaderStr(mail.cc),
+    ];
+    for (const otherEmail of otherAddresses) {
+      if (
+        otherEmail === key ||
+        otherEmail === 'unknown@unknown' ||
+        (primaryEmail && otherEmail === primaryEmail.trim().toLowerCase())
+      ) {
+        continue;
+      }
+      if (!byEmail.has(otherEmail)) {
+        const domain = otherEmail.split('@')[1] || '外部联系人';
+        const localPart = otherEmail.split('@')[0] || otherEmail;
+        const isSameCompany = myDomain !== '' && domain === myDomain;
+        byEmail.set(otherEmail, {
+          id: `contact-${otherEmail}`,
+          name: localPart,
+          role: domain,
+          source: 'email',
+          email: otherEmail,
+          avatarImg: null,
+          initials: localPart.charAt(0).toUpperCase(),
+          group: isSameCompany ? 'team' : 'partner',
+          groupLabel: isSameCompany ? '团队协作' : '往来联系人',
+          starred: starSet.has(otherEmail),
+          lastActive: mail.fullTime,
+          attachments: [],
+          threads: [
+            {
+              subject: mail.subject,
+              time: mail.fullTime,
+              snippet: mail.preview,
+              emailId: mail.id,
+            },
+          ],
+        });
       }
     }
   }
@@ -303,6 +501,17 @@ export const mailService = {
       syncedAccounts: 1,
       errors: [],
       syncedAt: `${hh}:${mm}:${ss}`,
+    };
+  },
+
+  async loadOlderEmails(batchSize = 50): Promise<LoadOlderResult> {
+    if (isTauriRuntime()) {
+      return invoke<LoadOlderResult>('load_older_emails', { batchSize });
+    }
+    return {
+      fetchedCount: 0,
+      hasMore: false,
+      errors: [],
     };
   },
 
@@ -432,9 +641,19 @@ export const mailService = {
     await invoke('toggle_smart_folder', { id });
   },
 
+  async deleteSmartFolder(id: string): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke('delete_smart_folder', { id });
+  },
+
   async saveLabel(id: string, name: string, dotClass: string): Promise<void> {
     if (!isTauriRuntime()) return;
     await invoke('save_label', { id, name, dotClass });
+  },
+
+  async deleteLabel(id: string): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke('delete_label', { id });
   },
 
   async saveLlmProfile(profile: LlmProfile): Promise<void> {
@@ -493,6 +712,23 @@ export const mailService = {
   async toggleContactStar(email: string): Promise<string[] | null> {
     if (!isTauriRuntime()) return null;
     return invoke<string[]>('toggle_contact_star', { email });
+  },
+
+  async getCardDavConfig(): Promise<CardDavConfigState | null> {
+    if (!isTauriRuntime()) return null;
+    return invoke<CardDavConfigState>('get_carddav_config');
+  },
+
+  async syncCardDavContacts(input: CardDavConfigInput): Promise<ContactSyncResult> {
+    if (isTauriRuntime()) {
+      return invoke<ContactSyncResult>('sync_carddav_contacts', { input });
+    }
+    throw new Error('CardDAV 网络同步需要在 Windows 桌面端运行，网页预览请使用「导入 VCF/CSV」体验');
+  },
+
+  async importContactsFile(): Promise<ContactSyncResult | null> {
+    if (!isTauriRuntime()) return null;
+    return invoke<ContactSyncResult | null>('import_contacts_file');
   },
 
   async sendTestNotification(): Promise<{ ok: boolean; message: string }> {

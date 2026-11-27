@@ -278,6 +278,14 @@ pub struct SyncSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LoadOlderResult {
+    pub fetched_count: usize,
+    pub has_more: bool,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CacheStats {
     pub cache_bytes: i64,
     pub db_size_bytes: i64,
@@ -285,6 +293,53 @@ pub struct CacheStats {
     pub cache_text: String,
     pub data_dir: String,
     pub portable_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryContact {
+    pub email: String,
+    pub name: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub department: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardDavConfigInput {
+    pub server_url: String,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default = "default_true")]
+    pub use_default_account: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardDavConfigState {
+    pub server_url: String,
+    pub username: String,
+    pub has_password: bool,
+    pub use_default_account: bool,
+    pub last_sync_at: Option<String>,
+    pub last_sync_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactSyncResult {
+    pub imported_count: usize,
+    pub total_directory_count: usize,
+    pub source_label: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -301,6 +356,7 @@ pub struct WorkspaceSnapshot {
     pub drafts: Vec<DraftItem>,
     pub scheduled_emails: Vec<ScheduledEmailItem>,
     pub starred_contacts: Vec<String>,
+    pub directory_contacts: Vec<DirectoryContact>,
     pub data_dir: String,
     pub portable_mode: bool,
 }

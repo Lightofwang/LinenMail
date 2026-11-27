@@ -1,5 +1,6 @@
 export type AppRoute =
   | 'inbox'
+  | 'drafts'
   | 'smart-folders'
   | 'contacts'
   | 'compose'
@@ -70,6 +71,8 @@ export interface ContactItem {
   id: string;
   name: string;
   role: string;
+  department?: string;
+  source?: 'carddav' | 'import' | 'email';
   email: string;
   avatarImg: string | null;
   initials: string;
@@ -79,6 +82,38 @@ export interface ContactItem {
   lastActive: string;
   attachments: ContactAttachment[];
   threads: ContactThread[];
+}
+
+export interface DirectoryContact {
+  email: string;
+  name: string;
+  role: string;
+  department: string;
+  source: 'carddav' | 'import' | 'email' | string;
+  updatedAt: string;
+}
+
+export interface CardDavConfigInput {
+  serverUrl: string;
+  username: string;
+  password: string;
+  useDefaultAccount: boolean;
+}
+
+export interface CardDavConfigState {
+  serverUrl: string;
+  username: string;
+  hasPassword: boolean;
+  useDefaultAccount: boolean;
+  lastSyncAt?: string | null;
+  lastSyncCount: number;
+}
+
+export interface ContactSyncResult {
+  importedCount: number;
+  totalDirectoryCount: number;
+  sourceLabel: string;
+  message: string;
 }
 
 export interface SmartFolderItem {
@@ -244,6 +279,12 @@ export interface SyncSummary {
   syncedAt: string;
 }
 
+export interface LoadOlderResult {
+  fetchedCount: number;
+  hasMore: boolean;
+  errors: string[];
+}
+
 export interface CacheStats {
   cacheBytes: number;
   dbSizeBytes: number;
@@ -265,6 +306,7 @@ export interface WorkspaceSnapshot {
   drafts: DraftItem[];
   scheduledEmails: ScheduledEmailItem[];
   starredContacts: string[];
+  directoryContacts?: DirectoryContact[];
   dataDir: string;
   portableMode: boolean;
 }

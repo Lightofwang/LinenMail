@@ -1,7 +1,8 @@
+use crate::carddav::{parse_csv_contacts, parse_vcards, sync_carddav_contacts_async};
 use crate::db::{format_bytes, sanitize_filename, Database};
 use crate::mail_protocol::{
-    refetch_attachment_blocking, send_email_blocking, sync_account_blocking,
-    sync_flag_to_imap_blocking, test_connection_blocking,
+    load_older_emails_blocking, refetch_attachment_blocking, send_email_blocking,
+    sync_account_blocking, sync_flag_to_imap_blocking, test_connection_blocking,
 };
 use crate::models::*;
 use chrono::Local;
@@ -60,6 +61,50 @@ pub async fn sync_all_accounts(
     let db_arc = Arc::clone(&state.db);
     let summary = run_sync_all_internal(&app, db_arc, true).await?;
     Ok(summary)
+}
+
+#[tauri::command]
+pub async fn load_older_emails(
+    state: State<'_, AppState>,
+    batch_size: Option<usize>,
+) -> Result<LoadOlderResult, String> {
+    let accounts = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        db.list_accounts_with_secrets()?
+    };
+
+    let limit = batch_size.unwrap_or(50).clamp(10, 100);
+    let db_for_task = Arc::clone(&state.db);
+
+    let (fetched_count, has_more, errors) = tokio::task::spawn_blocking(move || {
+        let mut total_fetched = 0usize;
+        let mut any_has_more = false;
+        let mut errs = Vec::new();
+
+        for acc in accounts {
+            if !acc.account.has_credentials {
+                continue;
+            }
+            match load_older_emails_blocking(&db_for_task, &acc, limit) {
+                Ok((cnt, more)) => {
+                    total_fetched += cnt;
+                    if more {
+                        any_has_more = true;
+                    }
+                }
+                Err(e) => errs.push(format!("{}: {}", acc.account.email, e)),
+            }
+        }
+        (total_fetched, any_has_more, errs)
+    })
+    .await
+    .map_err(|e| format!("加载历史邮件任务中断: {}", e))?;
+
+    Ok(LoadOlderResult {
+        fetched_count,
+        has_more,
+        errors,
+    })
 }
 
 pub async fn run_sync_all_internal(
@@ -395,6 +440,12 @@ pub fn toggle_smart_folder(state: State<'_, AppState>, id: String) -> Result<(),
 }
 
 #[tauri::command]
+pub fn delete_smart_folder(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db.delete_smart_folder(&id)
+}
+
+#[tauri::command]
 pub fn save_label(
     state: State<'_, AppState>,
     id: String,
@@ -403,6 +454,12 @@ pub fn save_label(
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db.save_label(&id, &name, &dot_class)
+}
+
+#[tauri::command]
+pub fn delete_label(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db.delete_label(&id)
 }
 
 #[tauri::command]
@@ -512,6 +569,133 @@ pub fn send_test_notification(app: AppHandle) -> Result<(), String> {
         .body("桌面新邮件提醒已就绪，后台同步时将自动静默通知。")
         .show()
         .map_err(|e| format!("发送桌面通知失败: {}", e))
+}
+
+#[tauri::command]
+pub fn get_carddav_config(state: State<'_, AppState>) -> Result<CardDavConfigState, String> {
+    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db.get_carddav_config_state()
+}
+
+#[tauri::command]
+pub async fn sync_carddav_contacts(
+    state: State<'_, AppState>,
+    input: CardDavConfigInput,
+) -> Result<ContactSyncResult, String> {
+    let server_url = input.server_url.trim().to_string();
+    if server_url.is_empty() {
+        return Err("请填写 CardDAV 服务器地址".into());
+    }
+
+    let (resolved_user, resolved_pass) = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        let mut user = input.username.trim().to_string();
+        let mut pass = input.password.trim().to_string();
+
+        if input.use_default_account && (user.is_empty() || pass.is_empty()) {
+            if let Some(acc) = db.get_account_with_secret(None)? {
+                if user.is_empty() {
+                    user = acc.account.email.clone();
+                }
+                if pass.is_empty() {
+                    pass = acc.auth_code.clone();
+                }
+            }
+        }
+
+        if pass.is_empty() {
+            pass = db.get_carddav_stored_password()?;
+        }
+
+        (user, pass)
+    };
+
+    if resolved_user.is_empty() || resolved_pass.is_empty() {
+        return Err("缺少 CardDAV 登录账号或授权码，请先连接邮箱或手动填写".into());
+    }
+
+    let contacts = sync_carddav_contacts_async(&server_url, &resolved_user, &resolved_pass).await?;
+
+    let (imported_count, total_directory_count) = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        let imported = db.upsert_directory_contacts_batch(&contacts)?;
+        let _ = db.save_carddav_config(&input, Some(imported));
+        let total = db.list_directory_contacts()?.len();
+        (imported, total)
+    };
+
+    let msg = if imported_count > 0 {
+        format!("已从 CardDAV 同步 {} 位企业通讯录联系人", imported_count)
+    } else {
+        "连接成功，但服务器未返回带邮箱地址的联系人".into()
+    };
+
+    Ok(ContactSyncResult {
+        imported_count,
+        total_directory_count,
+        source_label: "CardDAV 企业通讯录".into(),
+        message: msg,
+    })
+}
+
+#[tauri::command]
+pub async fn import_contacts_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<ContactSyncResult>, String> {
+    let db_arc = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || {
+        let Some(picked) = app
+            .dialog()
+            .file()
+            .set_title("导入通讯录文件（vCard / CSV）")
+            .add_filter("通讯录文件 (vCard / CSV)", &["vcf", "csv"])
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+
+        let path = picked
+            .into_path()
+            .map_err(|_| "所选文件路径不受支持".to_string())?;
+        let bytes = fs::read(&path).map_err(|e| format!("读取通讯录文件失败: {}", e))?;
+        let raw_text = String::from_utf8_lossy(&bytes).to_string();
+
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let contacts = if ext == "csv" || (!raw_text.contains("BEGIN:VCARD") && raw_text.contains(',')) {
+            parse_csv_contacts(&raw_text, "import")
+        } else {
+            parse_vcards(&raw_text, "import")
+        };
+
+        if contacts.is_empty() {
+            return Err("未在文件中解析到有效联系人邮箱，请确认文件为标准 UTF-8 编码的 .vcf 或 .csv 格式".into());
+        }
+
+        let db = db_arc.lock().map_err(|_| "数据库锁异常".to_string())?;
+        let imported_count = db.upsert_directory_contacts_batch(&contacts)?;
+        let total_directory_count = db.list_directory_contacts()?.len();
+
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("通讯录文件")
+            .to_string();
+
+        Ok(Some(ContactSyncResult {
+            imported_count,
+            total_directory_count,
+            source_label: file_name.clone(),
+            message: format!("已从「{}」导入 {} 位联系人", file_name, imported_count),
+        }))
+    })
+    .await
+    .map_err(|e| format!("导入通讯录任务中断: {}", e))?
 }
 
 fn validate_llm_endpoint(raw: &str) -> Result<(), String> {

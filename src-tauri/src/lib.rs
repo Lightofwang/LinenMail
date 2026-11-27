@@ -1,3 +1,4 @@
+mod carddav;
 mod commands;
 mod crypto;
 mod db;
@@ -174,6 +175,7 @@ pub fn run() {
             commands::set_default_account,
             commands::delete_account,
             commands::sync_all_accounts,
+            commands::load_older_emails,
             commands::send_email,
             commands::schedule_email,
             commands::cancel_scheduled_email,
@@ -189,7 +191,9 @@ pub fn run() {
             commands::toggle_filter_rule,
             commands::save_smart_folder,
             commands::toggle_smart_folder,
+            commands::delete_smart_folder,
             commands::save_label,
+            commands::delete_label,
             commands::save_llm_profile,
             commands::activate_llm_profile,
             commands::invoke_llm_chat,
@@ -197,6 +201,9 @@ pub fn run() {
             commands::save_system_settings,
             commands::toggle_contact_star,
             commands::send_test_notification,
+            commands::get_carddav_config,
+            commands::sync_carddav_contacts,
+            commands::import_contacts_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LinenMail desktop application");

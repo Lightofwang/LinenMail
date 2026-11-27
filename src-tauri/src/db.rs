@@ -61,6 +61,9 @@ impl Database {
         };
         db.run_migrations()?;
         db.seed_defaults_if_empty()?;
+        db.cleanup_legacy_seed_data()?;
+        db.cleanup_stored_html_entities()?;
+        db.backfill_directory_contacts()?;
         Ok(db)
     }
 
@@ -105,7 +108,7 @@ impl Database {
                     archived INTEGER NOT NULL DEFAULT 0,
                     deleted INTEGER NOT NULL DEFAULT 0,
                     folder TEXT NOT NULL DEFAULT 'inbox',
-                    tag TEXT NOT NULL DEFAULT '设计评审',
+                    tag TEXT NOT NULL DEFAULT '',
                     paragraphs_json TEXT NOT NULL,
                     signoff TEXT NOT NULL DEFAULT ''
                 );
@@ -199,116 +202,21 @@ impl Database {
                     key TEXT PRIMARY KEY,
                     value_json TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS directory_contacts (
+                    email TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT '',
+                    department TEXT NOT NULL DEFAULT '',
+                    source TEXT NOT NULL DEFAULT 'email',
+                    updated_at TEXT NOT NULL
+                );
                 ",
             )
             .map_err(|e| format!("数据库表结构迁移失败: {}", e))
     }
 
     fn seed_defaults_if_empty(&self) -> Result<(), String> {
-        let label_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM labels", [], |r| r.get(0))
-            .unwrap_or(0);
-
-        if label_count == 0 {
-            let defaults = [
-                ("lbl-1", "设计评审", "bg-light-primary"),
-                ("lbl-2", "品牌合作", "bg-light-secondary"),
-                ("lbl-3", "工程研发", "bg-light-tertiary"),
-                ("lbl-4", "精选订阅", "bg-light-primary-container"),
-                ("lbl-5", "日程通知", "bg-light-on-surface-variant"),
-                ("lbl-6", "财务票据", "bg-light-secondary"),
-            ];
-            for (id, name, dot) in defaults {
-                let _ = self.conn.execute(
-                    "INSERT OR IGNORE INTO labels (id, name, dot_class) VALUES (?1, ?2, ?3)",
-                    params![id, name, dot],
-                );
-            }
-        }
-
-        let sf_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM smart_folders", [], |r| r.get(0))
-            .unwrap_or(0);
-
-        if sf_count == 0 {
-            let folders = [
-                (
-                    "sf-1",
-                    "设计评审与反馈",
-                    "palette",
-                    vec!["主题包含 \"设计\"", "主题包含 \"排版\"", "发件人 @atelier.cn"],
-                    "自动添加标签「设计评审」，并保留在收件箱优先展示。",
-                    "设计评审",
-                ),
-                (
-                    "sf-2",
-                    "精选周刊与订阅",
-                    "auto_stories",
-                    vec!["发件人包含 digest@", "发件人包含 newsletter@", "含退订链接"],
-                    "自动添加标签「精选订阅」，跳过收件箱归入每日阅读角。",
-                    "精选订阅",
-                ),
-                (
-                    "sf-3",
-                    "财务票据与账单",
-                    "receipt_long",
-                    vec!["主题包含 \"发票\"", "主题包含 \"账单\"", "包含 PDF 附件"],
-                    "自动添加标签「财务票据」，并标记为低打扰归档备查。",
-                    "财务票据",
-                ),
-                (
-                    "sf-4",
-                    "工程研发与发布",
-                    "terminal",
-                    vec!["发件人 @nexuslab.io", "主题包含 \"测试报告\""],
-                    "自动添加标签「工程研发」，保留在收件箱并开启桌面提醒。",
-                    "工程研发",
-                ),
-            ];
-            for (id, name, icon, conds, action, tag) in folders {
-                let cond_json = serde_json::to_string(&conds).unwrap_or_else(|_| "[]".into());
-                let _ = self.conn.execute(
-                    "INSERT OR IGNORE INTO smart_folders (id, name, icon, enabled, conditions_json, action_text, tag) VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6)",
-                    params![id, name, icon, cond_json, action, tag],
-                );
-            }
-        }
-
-        let flt_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM filter_rules", [], |r| r.get(0))
-            .unwrap_or(0);
-
-        if flt_count == 0 {
-            let cond_invoice = serde_json::to_string(&vec![
-                FilterCondition {
-                    field: "发件人".into(),
-                    op: "包含".into(),
-                    value: "billing@".into(),
-                },
-                FilterCondition {
-                    field: "主题".into(),
-                    op: "包含".into(),
-                    value: "发票".into(),
-                },
-            ])
-            .unwrap_or_else(|_| "[]".into());
-            let _ = self.conn.execute(
-                "INSERT OR IGNORE INTO filter_rules
-                 (id, name, condition_text, action_text, hits, enabled, logic, conditions_json, has_attachment, action_tag, action_archive, action_mark_read, action_star)
-                 VALUES (?1, ?2, ?3, ?4, 0, 1, 'OR', ?5, 0, '财务票据', 0, 1, 0)",
-                params![
-                    "flt-3",
-                    "账单与电子发票归档",
-                    "发件人包含 \"billing@\" 或 主题包含 \"发票\"",
-                    "添加标签「财务票据」、自动标记为已读",
-                    cond_invoice
-                ],
-            );
-        }
-
         let llm_count: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM llm_profiles", [], |r| r.get(0))
@@ -329,11 +237,11 @@ impl Database {
 
         if self.get_kv::<UserProfile>("user_profile")?.is_none() {
             let default_profile = UserProfile {
-                name: "周明远".into(),
-                initial: "周".into(),
-                primary_email: "zhou@linenmail.cn".into(),
-                signature: "祝好，\n周明远 · 产品设计负责人\nAtelier Studio".into(),
-                undo_seconds: 10,
+                name: "我的邮箱".into(),
+                initial: "我".into(),
+                primary_email: String::new(),
+                signature: String::new(),
+                undo_seconds: 5,
                 minimal_reading: true,
                 enable_shortcuts: true,
                 quiet_night_mode: false,
@@ -345,7 +253,7 @@ impl Database {
             let default_settings = SystemSettingsState {
                 vacation_responder: false,
                 auto_forward: false,
-                blocklist: vec!["promo@ads-network.cn".into(), "@spam-digest.io".into()],
+                blocklist: vec![],
                 sync_frequency: "每 5 分钟".into(),
                 cache_text: "本地附件缓存当前占用 0 KB".into(),
                 minimize_to_tray: true,
@@ -356,45 +264,110 @@ impl Database {
             self.set_kv("system_settings", &default_settings)?;
         }
 
-        let email_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM emails", [], |r| r.get(0))
-            .unwrap_or(0);
+        Ok(())
+    }
 
-        if email_count == 0 {
-            let now_ms = Local::now().timestamp_millis();
-            let welcome = EmailItem {
-                id: "mail-welcome-1".into(),
-                account_id: None,
-                remote_uid: None,
-                sender: "素笺 LinenMail".into(),
-                email: "welcome@linenmail.cn".into(),
-                recipient: Some("我".into()),
-                cc: None,
-                avatar_img: None,
-                initials: "素".into(),
-                subject: "欢迎使用素笺 LinenMail Windows 桌面版（SQLite 本地引擎已就绪）".into(),
-                preview: "您的数据已保存在本地 SQLite 数据库中。点击右上角个人头像或「打开邮箱初始化连接向导」即可直连 QQ、163、Gmail 或企业 IMAP/SMTP 邮箱...".into(),
-                time: "刚刚".into(),
-                full_time: format_full_time(now_ms),
-                timestamp_ms: now_ms,
-                unread: true,
-                starred: true,
-                archived: false,
-                folder: "inbox".into(),
-                tag: "设计评审".into(),
-                attachment: None,
-                attachments: vec![],
-                paragraphs: vec![
-                    "您好，欢迎来到素笺 LinenMail 桌面端：".into(),
-                    "当前版本已内置本地 SQLite 邮件数据库、AES-256-GCM 本地凭证加密、真实 IMAP/SMTP 收发引擎、Windows 系统托盘常驻与原生附件另存为能力。".into(),
-                    "下一步您可以点击右上角头像进入「账户管理」或「邮箱初始化连接向导」，填入 QQ 邮箱 / 网易 163 / Gmail / 企业邮的邮箱地址与授权码，完成测试连接后即可一键同步全部往来邮件。".into(),
-                ],
-                signoff: "愿每日收件都能回归纸张般的宁静。\n素笺 LinenMail 团队".into(),
-            };
-            self.insert_email(&welcome, None)?;
+    /// One-time migration to remove legacy demo/seed records from databases created in v1.0.0
+    /// without touching any user-created folders, labels, accounts, or real synced emails.
+    fn cleanup_legacy_seed_data(&self) -> Result<(), String> {
+        if self.get_kv::<bool>("cleaned_seed_data_v1")?.unwrap_or(false) {
+            return Ok(());
         }
 
+        let _ = self.conn.execute(
+            "DELETE FROM smart_folders WHERE id IN ('sf-1', 'sf-2', 'sf-3', 'sf-4')",
+            [],
+        );
+        let _ = self.conn.execute(
+            "DELETE FROM labels WHERE id IN ('lbl-1', 'lbl-2', 'lbl-3', 'lbl-4', 'lbl-5', 'lbl-6')",
+            [],
+        );
+        let _ = self.conn.execute(
+            "DELETE FROM filter_rules WHERE id IN ('flt-1', 'flt-2', 'flt-3')",
+            [],
+        );
+        let _ = self.conn.execute("DELETE FROM emails WHERE id = 'mail-welcome-1'", []);
+        let _ = self.conn.execute(
+            "UPDATE emails SET tag = '' WHERE tag IN ('设计评审', '品牌合作', '工程研发', '精选订阅', '日程通知', '财务票据')",
+            [],
+        );
+
+        if let Ok(Some(mut settings)) = self.get_kv::<SystemSettingsState>("system_settings") {
+            let orig_len = settings.blocklist.len();
+            settings
+                .blocklist
+                .retain(|b| b != "promo@ads-network.cn" && b != "@spam-digest.io");
+            if settings.blocklist.len() != orig_len {
+                let _ = self.set_kv("system_settings", &settings);
+            }
+        }
+
+        self.set_kv("cleaned_seed_data_v1", &true)?;
+        Ok(())
+    }
+
+    /// One-time migration to decode legacy HTML entities (e.g. &nbsp; / &amp;nbsp;)
+    /// stored in previously synced emails in SQLite.
+    fn cleanup_stored_html_entities(&self) -> Result<(), String> {
+        if self.get_kv::<bool>("cleaned_html_entities_v1")?.unwrap_or(false) {
+            return Ok(());
+        }
+
+        let rows: Vec<(String, String, String, String, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, subject, preview, paragraphs_json, signoff FROM emails")
+                .map_err(|e| format!("查询历史邮件失败: {}", e))?;
+            let iter = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                })
+                .map_err(|e| format!("读取历史邮件失败: {}", e))?;
+            iter.flatten().collect()
+        };
+
+        for (id, subject, preview, paragraphs_json, signoff) in rows {
+            let needs_clean = subject.contains('&')
+                || preview.contains('&')
+                || paragraphs_json.contains('&')
+                || signoff.contains('&')
+                || paragraphs_json.contains('\u{00a0}');
+            if !needs_clean {
+                continue;
+            }
+            let clean_subject = crate::mail_protocol::decode_html_entities(&subject);
+            let clean_preview = crate::mail_protocol::decode_html_entities(&preview)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let clean_signoff = crate::mail_protocol::decode_html_entities(&signoff);
+            let parsed_paras: Vec<String> =
+                serde_json::from_str(&paragraphs_json).unwrap_or_default();
+            let clean_paras: Vec<String> = parsed_paras
+                .into_iter()
+                .map(|p| {
+                    crate::mail_protocol::decode_html_entities(&p)
+                        .trim()
+                        .to_string()
+                })
+                .filter(|p| !p.is_empty())
+                .collect();
+            let new_paras_json =
+                serde_json::to_string(&clean_paras).unwrap_or(paragraphs_json);
+
+            let _ = self.conn.execute(
+                "UPDATE emails SET subject = ?1, preview = ?2, paragraphs_json = ?3, signoff = ?4 WHERE id = ?5",
+                params![clean_subject, clean_preview, new_paras_json, clean_signoff, id],
+            );
+        }
+
+        self.set_kv("cleaned_html_entities_v1", &true)?;
         Ok(())
     }
 
@@ -430,11 +403,11 @@ impl Database {
 
     pub fn get_user_profile(&self) -> Result<UserProfile, String> {
         Ok(self.get_kv::<UserProfile>("user_profile")?.unwrap_or(UserProfile {
-            name: "周明远".into(),
-            initial: "周".into(),
-            primary_email: "zhou@linenmail.cn".into(),
-            signature: "祝好，\n周明远".into(),
-            undo_seconds: 10,
+            name: "我的邮箱".into(),
+            initial: "我".into(),
+            primary_email: String::new(),
+            signature: String::new(),
+            undo_seconds: 5,
             minimal_reading: true,
             enable_shortcuts: true,
             quiet_night_mode: false,
@@ -742,6 +715,18 @@ impl Database {
             )
             .map_err(|e| format!("更新同步游标失败: {}", e))?;
         Ok(())
+    }
+
+    pub fn get_oldest_remote_uid(&self, account_id: &str) -> Option<u32> {
+        self.conn
+            .query_row(
+                "SELECT MIN(remote_uid) FROM emails WHERE account_id = ?1 AND remote_uid IS NOT NULL AND remote_uid > 0",
+                params![account_id],
+                |r| r.get::<_, Option<i64>>(0),
+            )
+            .ok()
+            .flatten()
+            .map(|v| v as u32)
     }
 
     pub fn set_default_account(&self, account_id: &str) -> Result<(), String> {
@@ -1254,6 +1239,13 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_smart_folder(&self, id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM smart_folders WHERE id = ?1", params![id])
+            .map_err(|e| format!("删除智能文件夹失败: {}", e))?;
+        Ok(())
+    }
+
     pub fn list_labels(&self, emails: &[EmailItem]) -> Result<Vec<LabelItem>, String> {
         let mut stmt = self
             .conn
@@ -1282,6 +1274,13 @@ impl Database {
                 params![id, name, dot_class],
             )
             .map_err(|e| format!("保存标签失败: {}", e))?;
+        Ok(())
+    }
+
+    pub fn delete_label(&self, id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM labels WHERE id = ?1", params![id])
+            .map_err(|e| format!("删除标签失败: {}", e))?;
         Ok(())
     }
 
@@ -1521,6 +1520,281 @@ impl Database {
         Ok(list)
     }
 
+    pub fn upsert_directory_contact(&self, contact: &DirectoryContact) -> Result<(), String> {
+        let email = contact.email.trim().to_lowercase();
+        if email.is_empty() || !email.contains('@') || email == "unknown@unknown" {
+            return Ok(());
+        }
+        let local_part = email.split('@').next().unwrap_or("");
+        let incoming_name = contact.name.trim();
+        let incoming_role = contact.role.trim();
+        let incoming_dept = contact.department.trim();
+        let incoming_source = if contact.source.trim().is_empty() {
+            "email"
+        } else {
+            contact.source.trim()
+        };
+        let updated_at = if contact.updated_at.trim().is_empty() {
+            Local::now().format("%Y-%m-%d %H:%M").to_string()
+        } else {
+            contact.updated_at.clone()
+        };
+
+        let existing: Option<(String, String, String, String)> = self
+            .conn
+            .query_row(
+                "SELECT name, role, department, source FROM directory_contacts WHERE email = ?1",
+                params![email],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| format!("查询通讯录联系人失败: {}", e))?;
+
+        let (final_name, final_role, final_dept, final_source) = match existing {
+            Some((ex_name, ex_role, ex_dept, ex_source)) => {
+                let incoming_is_rich = incoming_source == "carddav" || incoming_source == "import";
+                let ex_is_rich = ex_source == "carddav" || ex_source == "import";
+                let ex_name_is_fallback =
+                    ex_name.trim().is_empty() || ex_name.eq_ignore_ascii_case(local_part);
+                let in_name_is_fallback =
+                    incoming_name.is_empty() || incoming_name.eq_ignore_ascii_case(local_part);
+
+                let name = if incoming_is_rich && !in_name_is_fallback {
+                    incoming_name.to_string()
+                } else if !ex_name_is_fallback {
+                    ex_name
+                } else if !incoming_name.is_empty() {
+                    incoming_name.to_string()
+                } else {
+                    local_part.to_string()
+                };
+
+                let role = if incoming_is_rich && !incoming_role.is_empty() {
+                    incoming_role.to_string()
+                } else if !ex_role.is_empty() {
+                    ex_role
+                } else {
+                    incoming_role.to_string()
+                };
+
+                let dept = if incoming_is_rich && !incoming_dept.is_empty() {
+                    incoming_dept.to_string()
+                } else if !ex_dept.is_empty() {
+                    ex_dept
+                } else {
+                    incoming_dept.to_string()
+                };
+
+                let source = if incoming_is_rich {
+                    incoming_source.to_string()
+                } else if ex_is_rich {
+                    ex_source
+                } else {
+                    incoming_source.to_string()
+                };
+
+                (name, role, dept, source)
+            }
+            None => {
+                let name = if incoming_name.is_empty() {
+                    local_part.to_string()
+                } else {
+                    incoming_name.to_string()
+                };
+                (
+                    name,
+                    incoming_role.to_string(),
+                    incoming_dept.to_string(),
+                    incoming_source.to_string(),
+                )
+            }
+        };
+
+        self.conn
+            .execute(
+                "INSERT INTO directory_contacts (email, name, role, department, source, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(email) DO UPDATE SET
+                    name = excluded.name,
+                    role = excluded.role,
+                    department = excluded.department,
+                    source = excluded.source,
+                    updated_at = excluded.updated_at",
+                params![email, final_name, final_role, final_dept, final_source, updated_at],
+            )
+            .map_err(|e| format!("保存通讯录联系人失败: {}", e))?;
+        Ok(())
+    }
+
+    pub fn upsert_directory_contacts_batch(&self, list: &[DirectoryContact]) -> Result<usize, String> {
+        let mut count = 0usize;
+        for c in list {
+            let trimmed = c.email.trim();
+            if trimmed.is_empty() || !trimmed.contains('@') {
+                continue;
+            }
+            self.upsert_directory_contact(c)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    pub fn list_directory_contacts(&self) -> Result<Vec<DirectoryContact>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT email, name, role, department, source, updated_at
+                 FROM directory_contacts
+                 ORDER BY CASE source WHEN 'carddav' THEN 0 WHEN 'import' THEN 1 ELSE 2 END, name ASC",
+            )
+            .map_err(|e| format!("读取通讯录失败: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(DirectoryContact {
+                    email: row.get(0)?,
+                    name: row.get(1)?,
+                    role: row.get(2)?,
+                    department: row.get(3)?,
+                    source: row.get(4)?,
+                    updated_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| format!("解析通讯录失败: {}", e))?;
+        Ok(rows.flatten().collect())
+    }
+
+    fn backfill_directory_contacts(&self) -> Result<(), String> {
+        if self.get_kv::<bool>("backfilled_directory_contacts_v1")?.unwrap_or(false) {
+            return Ok(());
+        }
+
+        let mut extracted: Vec<DirectoryContact> = Vec::new();
+        let now_str = Local::now().format("%Y-%m-%d %H:%M").to_string();
+
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT sender, email, recipient, cc FROM emails WHERE deleted = 0")
+                .map_err(|e| format!("扫描历史邮件联系人失败: {}", e))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                })
+                .map_err(|e| format!("读取历史邮件联系人失败: {}", e))?;
+
+            for row in rows.flatten() {
+                let (sender, email, recipient, cc) = row;
+                let clean_sender = sender
+                    .trim_start_matches("我 → ")
+                    .trim_start_matches("我→")
+                    .trim()
+                    .to_string();
+                if email.contains('@') {
+                    extracted.push(DirectoryContact {
+                        email: email.trim().to_lowercase(),
+                        name: clean_sender,
+                        role: String::new(),
+                        department: String::new(),
+                        source: "email".into(),
+                        updated_at: now_str.clone(),
+                    });
+                }
+                for raw_list in [recipient, cc].into_iter().flatten() {
+                    for (n, e) in parse_address_list_str(&raw_list) {
+                        extracted.push(DirectoryContact {
+                            email: e,
+                            name: n,
+                            role: String::new(),
+                            department: String::new(),
+                            source: "email".into(),
+                            updated_at: now_str.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        let _ = self.upsert_directory_contacts_batch(&extracted);
+        self.set_kv("backfilled_directory_contacts_v1", &true)?;
+        Ok(())
+    }
+
+    pub fn get_carddav_config_state(&self) -> Result<CardDavConfigState, String> {
+        let stored = self.get_kv::<CardDavStoredConfig>("carddav_config")?;
+        Ok(match stored {
+            Some(c) => CardDavConfigState {
+                server_url: c.server_url,
+                username: c.username,
+                has_password: !c.password_enc.is_empty(),
+                use_default_account: c.use_default_account,
+                last_sync_at: c.last_sync_at,
+                last_sync_count: c.last_sync_count,
+            },
+            None => CardDavConfigState {
+                server_url: "https://dav.exmail.qq.com".into(),
+                username: String::new(),
+                has_password: false,
+                use_default_account: true,
+                last_sync_at: None,
+                last_sync_count: 0,
+            },
+        })
+    }
+
+    pub fn get_carddav_stored_password(&self) -> Result<String, String> {
+        if let Some(c) = self.get_kv::<CardDavStoredConfig>("carddav_config")? {
+            if !c.password_enc.is_empty() {
+                return self.cipher.decrypt(&c.password_enc);
+            }
+        }
+        Ok(String::new())
+    }
+
+    pub fn save_carddav_config(
+        &self,
+        input: &CardDavConfigInput,
+        synced_count: Option<usize>,
+    ) -> Result<CardDavConfigState, String> {
+        let existing = self.get_kv::<CardDavStoredConfig>("carddav_config")?;
+        let password_enc = if !input.password.trim().is_empty() {
+            self.cipher.encrypt(input.password.trim())?
+        } else if let Some(ref ex) = existing {
+            ex.password_enc.clone()
+        } else {
+            String::new()
+        };
+
+        let now_str = Local::now().format("%m-%d %H:%M").to_string();
+        let stored = CardDavStoredConfig {
+            server_url: input.server_url.trim().to_string(),
+            username: input.username.trim().to_string(),
+            password_enc,
+            use_default_account: input.use_default_account,
+            last_sync_at: if synced_count.is_some() {
+                Some(now_str)
+            } else {
+                existing.as_ref().and_then(|e| e.last_sync_at.clone())
+            },
+            last_sync_count: synced_count
+                .unwrap_or_else(|| existing.as_ref().map(|e| e.last_sync_count).unwrap_or(0)),
+        };
+
+        self.set_kv("carddav_config", &stored)?;
+        Ok(CardDavConfigState {
+            server_url: stored.server_url,
+            username: stored.username,
+            has_password: !stored.password_enc.is_empty(),
+            use_default_account: stored.use_default_account,
+            last_sync_at: stored.last_sync_at,
+            last_sync_count: stored.last_sync_count,
+        })
+    }
+
     pub fn get_workspace_snapshot(&self) -> Result<WorkspaceSnapshot, String> {
         let emails = self.list_emails()?;
         let accounts = self.list_accounts()?;
@@ -1533,6 +1807,7 @@ impl Database {
         let drafts = self.list_drafts()?;
         let scheduled_emails = self.list_scheduled_emails()?;
         let starred_contacts = self.get_starred_contacts()?;
+        let directory_contacts = self.list_directory_contacts()?;
 
         Ok(WorkspaceSnapshot {
             emails,
@@ -1546,10 +1821,46 @@ impl Database {
             drafts,
             scheduled_emails,
             starred_contacts,
+            directory_contacts,
             data_dir: self.data_dir.to_string_lossy().to_string(),
             portable_mode: self.portable_mode,
         })
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct CardDavStoredConfig {
+    server_url: String,
+    username: String,
+    password_enc: String,
+    use_default_account: bool,
+    last_sync_at: Option<String>,
+    last_sync_count: usize,
+}
+
+pub fn parse_address_list_str(raw: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for token in raw.split(|c| c == ',' || c == ';') {
+        let t = token.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if let (Some(lt), Some(gt)) = (t.find('<'), t.find('>')) {
+            if gt > lt {
+                let email = t[lt + 1..gt].trim().to_lowercase();
+                let name = t[..lt].trim().trim_matches('"').trim().to_string();
+                if email.contains('@') {
+                    out.push((name, email));
+                }
+                continue;
+            }
+        }
+        let email = t.trim_matches('"').trim().to_lowercase();
+        if email.contains('@') && !email.contains(' ') {
+            out.push((String::new(), email));
+        }
+    }
+    out
 }
 
 fn extract_account_secret(row: &rusqlite::Row<'_>) -> rusqlite::Result<(ConnectedAccount, String, u32)> {

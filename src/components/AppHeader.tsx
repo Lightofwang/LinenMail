@@ -5,6 +5,7 @@ interface AppHeaderProps {
   activeRoute: AppRoute;
   activeFolder: MailFolder;
   unreadCount: number;
+  draftCount?: number;
   searchQuery: string;
   searchPlaceholder: string;
   userInitial: string;
@@ -23,6 +24,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   activeRoute,
   activeFolder,
   unreadCount,
+  draftCount = 0,
   searchQuery,
   searchPlaceholder,
   userInitial,
@@ -53,7 +55,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     activeRoute === 'inbox' && activeFolder === folder;
 
   return (
-    <header className="bg-light-surface-container-lowest rounded-xl px-gutter-lg py-gutter-md shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-gutter-lg sticky top-4 z-20">
+    <header className="shrink-0 w-full bg-light-surface-container-lowest rounded-xl px-6 py-3 shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-5 z-20">
       <div className="flex items-center gap-gutter-lg min-w-0">
         {/* Brand Mark */}
         <button
@@ -108,6 +110,24 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
           <button
             type="button"
+            onClick={() => onNavigate('drafts')}
+            aria-current={activeRoute === 'drafts' ? 'page' : undefined}
+            className={`folder-tab shrink-0 whitespace-nowrap inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full font-label text-label-md transition-colors duration-state-change cursor-pointer ${
+              activeRoute === 'drafts'
+                ? 'bg-light-surface-container-highest text-light-on-surface'
+                : 'text-light-on-surface-variant hover:bg-light-surface-container-low'
+            }`}
+          >
+            <span>草稿箱</span>
+            {draftCount > 0 && (
+              <span className="font-mono text-mono-sm tabular-nums text-light-primary">
+                {draftCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
             onClick={() => onSelectFolder('archive')}
             aria-current={isFolderActive('archive') ? 'page' : undefined}
             className={`folder-tab shrink-0 whitespace-nowrap inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full font-label text-label-md transition-colors duration-state-change cursor-pointer ${
@@ -151,7 +171,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <form
         role="search"
         onSubmit={(e) => e.preventDefault()}
-        className="hidden lg:flex items-center gap-gutter-sm w-64 px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface transition-colors duration-state-change focus-within:bg-light-surface-container-lowest focus-within:ring-1 focus-within:ring-light-outline-variant"
+        className="hidden md:flex items-center gap-gutter-sm flex-1 max-w-md min-w-[240px] px-gutter-md py-2 rounded-full bg-light-surface-container-low text-light-on-surface transition-colors duration-state-change focus-within:bg-light-surface-container-lowest focus-within:ring-1 focus-within:ring-light-outline-variant"
       >
         <button
           type="submit"
@@ -170,11 +190,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           onChange={(e) => onSearchChange(e.target.value)}
           aria-label={searchPlaceholder}
           placeholder={searchPlaceholder}
-          className="w-full bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none"
+          className="w-full min-w-0 bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none"
         />
-        <kbd className="font-mono text-mono-sm px-gutter-sm py-gutter-xs rounded-sm bg-light-surface-container text-light-on-surface-variant shrink-0">
-          ⌘K
-        </kbd>
       </form>
 
       {/* Compose + Settings + User Profile */}

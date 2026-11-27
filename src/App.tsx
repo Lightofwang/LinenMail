@@ -23,6 +23,7 @@ import {
   ConnectedAccount,
   ContactAttachment,
   ContactItem,
+  DirectoryContact,
   DraftItem,
   EmailAttachment,
   EmailItem,
@@ -38,6 +39,7 @@ import {
 import { AccountSettingsView } from './views/AccountSettingsView';
 import { ComposeView } from './views/ComposeView';
 import { ContactsView } from './views/ContactsView';
+import { DraftsView } from './views/DraftsView';
 import { MainInboxView } from './views/MainInboxView';
 import { OnboardingView } from './views/OnboardingView';
 import { SmartFoldersView } from './views/SmartFoldersView';
@@ -58,9 +60,40 @@ interface PersistedState {
   drafts?: DraftItem[];
   scheduledEmails?: ScheduledEmailItem[];
   starredContacts?: string[];
+  directoryContacts?: DirectoryContact[];
 }
 
 function loadWebFallbackState(): PersistedState {
+  if (mailService.isDesktop()) {
+    return {
+      emails: [],
+      contacts: [],
+      smartFolders: [],
+      labels: [],
+      filters: [],
+      llmProfiles: INITIAL_LLM_PROFILES,
+      accounts: [],
+      profile: {
+        name: '我的邮箱',
+        initial: '我',
+        primaryEmail: '',
+        signature: '',
+        undoSeconds: 5,
+        minimalReading: true,
+        enableShortcuts: true,
+        quietNightMode: false,
+      },
+      systemSettings: {
+        minimizeToTray: true,
+        desktopNotifications: true,
+        ...INITIAL_SYSTEM_SETTINGS,
+      },
+      drafts: [],
+      scheduledEmails: [],
+      starredContacts: [],
+      directoryContacts: [],
+    };
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -82,6 +115,7 @@ function loadWebFallbackState(): PersistedState {
         drafts: parsed.drafts || [],
         scheduledEmails: parsed.scheduledEmails || [],
         starredContacts: parsed.starredContacts || [],
+        directoryContacts: parsed.directoryContacts || [],
       };
     }
   } catch {
@@ -104,6 +138,7 @@ function loadWebFallbackState(): PersistedState {
     drafts: [],
     scheduledEmails: [],
     starredContacts: [],
+    directoryContacts: [],
   };
 }
 
@@ -113,6 +148,9 @@ export default function App() {
   const [emails, setEmails] = useState<EmailItem[]>(initial.emails);
   const [seedContacts, setSeedContacts] = useState<ContactItem[]>(initial.contacts);
   const [starredContacts, setStarredContacts] = useState<string[]>(initial.starredContacts || []);
+  const [directoryContacts, setDirectoryContacts] = useState<DirectoryContact[]>(
+    initial.directoryContacts || []
+  );
   const [smartFolders, setSmartFolders] = useState<SmartFolderItem[]>(initial.smartFolders);
   const [labels, setLabels] = useState<LabelItem[]>(initial.labels);
   const [filters, setFilters] = useState<FilterRuleItem[]>(initial.filters);
@@ -128,6 +166,8 @@ export default function App() {
   const [dataDir, setDataDir] = useState<string>('');
   const [portableMode, setPortableMode] = useState<boolean>(false);
   const [syncing, setSyncing] = useState<boolean>(false);
+  const [loadingOlder, setLoadingOlder] = useState<boolean>(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState<boolean>(mailService.isDesktop());
   const [lastSyncText, setLastSyncText] = useState<string>('刚刚');
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -152,6 +192,7 @@ export default function App() {
     setDrafts(snap.drafts);
     setScheduledEmails(snap.scheduledEmails);
     setStarredContacts(snap.starredContacts);
+    setDirectoryContacts(snap.directoryContacts || []);
     setDataDir(snap.dataDir);
     setPortableMode(snap.portableMode);
     if (snap.emails.length > 0) {
@@ -209,6 +250,7 @@ export default function App() {
         drafts,
         scheduledEmails,
         starredContacts,
+        directoryContacts,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
@@ -227,6 +269,7 @@ export default function App() {
     drafts,
     scheduledEmails,
     starredContacts,
+    directoryContacts,
   ]);
 
   // Browser preview fallback scheduler for scheduled emails
@@ -255,7 +298,7 @@ export default function App() {
           unread: false,
           starred: false,
           folder: 'sent',
-          tag: '设计评审',
+          tag: '',
           attachment: item.attachments[0] || null,
           attachments: item.attachments,
           paragraphs: lines.length > 0 ? lines : ['（无正文）'],
@@ -310,9 +353,18 @@ export default function App() {
       aggregateContactsFromEmails(
         emails,
         mailService.isDesktop() ? [] : seedContacts,
-        starredContacts
+        starredContacts,
+        directoryContacts,
+        defaultAccount?.email || profile.primaryEmail
       ),
-    [emails, seedContacts, starredContacts]
+    [
+      emails,
+      seedContacts,
+      starredContacts,
+      directoryContacts,
+      defaultAccount?.email,
+      profile.primaryEmail,
+    ]
   );
 
   const handleSyncNow = useCallback(async () => {
@@ -342,6 +394,31 @@ export default function App() {
       setSyncing(false);
     }
   }, [syncing, refreshFromSqlite]);
+
+  const handleLoadOlderEmails = useCallback(async () => {
+    if (loadingOlder || syncing) return;
+    setLoadingOlder(true);
+    try {
+      const res = await mailService.loadOlderEmails(50);
+      setHasMoreOlder(res.hasMore);
+      if (mailService.isDesktop()) {
+        await refreshFromSqlite();
+      }
+      if (res.errors.length > 0) {
+        setSyncNotice(`历史拉取提醒：${res.errors[0]}`);
+      } else if (res.fetchedCount > 0) {
+        setSyncNotice(`已静默加载 ${res.fetchedCount} 封更早邮件`);
+      } else {
+        setSyncNotice('已加载全部历史邮件');
+      }
+      setTimeout(() => setSyncNotice(null), 4000);
+    } catch (e) {
+      setSyncNotice(`加载更早邮件失败：${String(e)}`);
+      setTimeout(() => setSyncNotice(null), 4500);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [loadingOlder, syncing, refreshFromSqlite]);
 
   const handleSelectFolder = (folder: MailFolder) => {
     setActiveFolder(folder);
@@ -444,7 +521,7 @@ export default function App() {
         unread: false,
         starred: false,
         folder: 'sent',
-        tag: '设计评审',
+        tag: '',
         attachment: payload.attachments[0] || null,
         attachments: payload.attachments,
         paragraphs: lines.length > 0 ? lines : ['（无正文）'],
@@ -487,6 +564,13 @@ export default function App() {
       }
     } else {
       setDrafts((prev) => [draft, ...prev.filter((d) => d.id !== draft.id)]);
+    }
+  };
+
+  const handleDeleteDraft = async (id: string) => {
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+    if (mailService.isDesktop()) {
+      await mailService.deleteDraft(id);
     }
   };
 
@@ -637,11 +721,13 @@ export default function App() {
         profile={profile}
         senderEmail={defaultAccount?.email || profile.primaryEmail}
         activeLlm={activeLlm}
+        contacts={mergedContacts}
         prefill={composePrefill}
         onBackToInbox={() => setActiveRoute('inbox')}
         onSendEmail={handleSendFullEmail}
         onScheduleEmail={handleScheduleEmail}
         onSaveDraft={handleSaveDraft}
+        onDeleteDraft={handleDeleteDraft}
       />
     );
   }
@@ -711,18 +797,30 @@ export default function App() {
   }
 
   const searchPlaceholder =
-    activeRoute === 'smart-folders'
+    activeRoute === 'drafts'
+      ? '搜索草稿收件人、主题或正文...'
+      : activeRoute === 'smart-folders'
       ? '搜索智能文件夹、规则或标签...'
       : activeRoute === 'contacts'
-      ? '搜索联系人或往来附件...'
+      ? '搜索联系人姓名、拼音首字母、邮箱或附件...'
       : '搜索发件人、主题或关键词...';
 
+  const isSplitPaneRoute =
+    activeRoute === 'inbox' || activeRoute === 'drafts' || activeRoute === 'contacts';
+
   return (
-    <div className="min-h-screen bg-light-surface flex flex-col px-gutter-xl py-gutter-lg gap-gutter-lg max-w-[1440px] mx-auto">
+    <div
+      className={
+        isSplitPaneRoute
+          ? 'h-screen w-full overflow-hidden bg-light-surface flex flex-col px-6 py-4 gap-4'
+          : 'min-h-screen w-full bg-light-surface flex flex-col px-6 py-4 gap-5'
+      }
+    >
       <AppHeader
         activeRoute={activeRoute}
         activeFolder={activeFolder}
         unreadCount={inboxUnreadCount}
+        draftCount={drafts.length}
         searchQuery={searchQuery}
         searchPlaceholder={searchPlaceholder}
         userInitial={profile.initial}
@@ -746,6 +844,7 @@ export default function App() {
       {activeRoute === 'inbox' && (
         <MainInboxView
           emails={emails}
+          labels={computedLabels}
           activeFolder={activeFolder}
           activeEmailId={activeEmailId}
           searchQuery={searchQuery}
@@ -757,9 +856,12 @@ export default function App() {
           userName={profile.name}
           userEmail={defaultAccount?.email || profile.primaryEmail}
           syncing={syncing}
+          loadingOlder={loadingOlder}
+          hasMoreOlder={hasMoreOlder && accounts.some((a) => a.hasCredentials)}
           lastSyncText={lastSyncText}
           syncNotice={syncNotice}
           onSyncNow={() => void handleSyncNow()}
+          onLoadOlderEmails={() => void handleLoadOlderEmails()}
           onDownloadAttachment={handleDownloadAttachment}
           onSelectEmail={handleSelectEmail}
           onClearTagFilter={() => setTagFilter(null)}
@@ -770,6 +872,25 @@ export default function App() {
           onChangeTag={handleChangeTag}
           onSendQuickReply={handleSendQuickReply}
           onForwardEmail={(prefill) => openCompose(prefill)}
+        />
+      )}
+
+      {activeRoute === 'drafts' && (
+        <DraftsView
+          drafts={drafts}
+          searchQuery={searchQuery}
+          onEditDraft={(draft) =>
+            openCompose({
+              draftId: draft.id,
+              recipients: draft.recipients,
+              cc: draft.cc,
+              subject: draft.subject,
+              body: draft.body,
+              attachments: draft.attachments,
+            })
+          }
+          onDeleteDraft={(id) => void handleDeleteDraft(id)}
+          onNewCompose={() => openCompose(null)}
         />
       )}
 
@@ -798,6 +919,10 @@ export default function App() {
               })
             );
           }}
+          onDeleteFolder={(id) => {
+            setSmartFolders((prev) => prev.filter((f) => f.id !== id));
+            void mailService.deleteSmartFolder(id);
+          }}
           onAddLabel={(name) => {
             const newLbl: LabelItem = {
               id: `lbl-${Date.now()}`,
@@ -817,6 +942,19 @@ export default function App() {
               })
             );
           }}
+          onDeleteLabel={(id) => {
+            const target = labels.find((l) => l.id === id);
+            setLabels((prev) => prev.filter((l) => l.id !== id));
+            if (target) {
+              setEmails((prev) =>
+                prev.map((m) => (m.tag === target.name ? { ...m, tag: '' } : m))
+              );
+              if (tagFilter === target.name) {
+                setTagFilter(null);
+              }
+            }
+            void mailService.deleteLabel(id);
+          }}
           onViewTagInInbox={(tag) => {
             setTagFilter(tag);
             setActiveFolder('inbox');
@@ -829,6 +967,7 @@ export default function App() {
         <ContactsView
           contacts={mergedContacts}
           searchQuery={searchQuery}
+          defaultAccountEmail={defaultAccount?.email || profile.primaryEmail}
           onToggleStarContact={(contact) => {
             if (mailService.isDesktop()) {
               void mailService.toggleContactStar(contact.email).then((list) => {
@@ -847,6 +986,28 @@ export default function App() {
           onComposeToContact={(prefill) => openCompose(prefill)}
           onOpenEmailInInbox={handleOpenEmailInInbox}
           onDownloadContactAttachment={handleDownloadContactAttachment}
+          onSyncCardDav={async (input) => {
+            const res = await mailService.syncCardDavContacts(input);
+            if (mailService.isDesktop()) {
+              await refreshFromSqlite();
+            }
+            return res;
+          }}
+          onImportContactsDesktop={async () => {
+            const res = await mailService.importContactsFile();
+            if (res && mailService.isDesktop()) {
+              await refreshFromSqlite();
+            }
+            return res;
+          }}
+          onImportContactsLocalFallback={(imported) => {
+            setDirectoryContacts((prev) => {
+              const map = new Map<string, DirectoryContact>();
+              for (const item of prev) map.set(item.email.toLowerCase(), item);
+              for (const item of imported) map.set(item.email.toLowerCase(), item);
+              return Array.from(map.values());
+            });
+          }}
         />
       )}
     </div>

@@ -1,18 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar } from '../components/Avatar';
+import { EmailBodyRenderer } from '../components/EmailBodyRenderer';
 import {
   ComposePrefill,
   EmailAttachment,
   EmailItem,
   InboxFilter,
+  LabelItem,
   LlmProfile,
   MailFolder,
 } from '../types/mail';
-import { isSafeExternalUrl } from '../services/mailService';
 import { translateEmailWithAi, TranslationResult } from '../utils/aiClient';
+import { cleanMailText, isMacPlatform } from '../utils/textClean';
 
 interface MainInboxViewProps {
   emails: EmailItem[];
+  labels: LabelItem[];
   activeFolder: MailFolder;
   activeEmailId: string;
   searchQuery: string;
@@ -24,9 +27,12 @@ interface MainInboxViewProps {
   userName: string;
   userEmail: string;
   syncing?: boolean;
+  loadingOlder?: boolean;
+  hasMoreOlder?: boolean;
   lastSyncText?: string;
   syncNotice?: string | null;
   onSyncNow?: () => void;
+  onLoadOlderEmails?: () => void;
   onDownloadAttachment: (email: EmailItem, att: EmailAttachment) => Promise<string>;
   onSelectEmail: (id: string) => void;
   onClearTagFilter: () => void;
@@ -39,44 +45,17 @@ interface MainInboxViewProps {
   onForwardEmail: (prefill: ComposePrefill) => void;
 }
 
-const SMART_CATEGORIES = [
-  '设计评审',
-  '工程研发',
-  '品牌合作',
-  '财务票据',
-  '精选订阅',
-  '日程通知',
-];
-
 const FOLDER_TITLES: Record<MailFolder, string> = {
   inbox: '收件箱',
   sent: '已发送',
   archive: '归档',
 };
 
-function renderSafeParagraph(text: string): React.ReactNode {
-  const parts = text.split(/(https?:\/\/[^\s<>()]+|mailto:[^\s<>()]+)/g);
-  if (parts.length === 1) return text;
-  return parts.map((part, idx) => {
-    if (isSafeExternalUrl(part)) {
-      return (
-        <a
-          key={idx}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-light-primary underline decoration-light-primary/40 hover:decoration-light-primary break-all"
-        >
-          {part}
-        </a>
-      );
-    }
-    return <React.Fragment key={idx}>{part}</React.Fragment>;
-  });
-}
+const FORWARD_SUBJECT_RE = /^(?:转发|Fw|Fwd)\s*[:：]/i;
 
 export const MainInboxView: React.FC<MainInboxViewProps> = ({
   emails,
+  labels,
   activeFolder,
   activeEmailId,
   searchQuery,
@@ -87,9 +66,12 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   userName,
   userEmail,
   syncing = false,
+  loadingOlder = false,
+  hasMoreOlder = false,
   lastSyncText = '刚刚',
   syncNotice,
   onSyncNow,
+  onLoadOlderEmails,
   onDownloadAttachment,
   onSelectEmail,
   onClearTagFilter,
@@ -276,13 +258,17 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   };
 
   const ctxTargetMail = emails.find((e) => e.id === ctxMenu.targetId);
+  const isMac = isMacPlatform();
 
   return (
-    <main className="grid grid-cols-12 gap-gutter-xl flex-1 items-start">
+    <main className="flex-1 min-h-0 flex flex-col lg:flex-row gap-5 overflow-hidden">
       {/* Left Column: Unified Single-List Triage */}
-      <section aria-label="邮件列表" className="col-span-12 lg:col-span-5 flex flex-col gap-gutter-md">
+      <section
+        aria-label="邮件列表"
+        className="w-full lg:w-[340px] xl:w-[420px] 2xl:w-[460px] shrink-0 flex flex-col gap-3 min-h-0 h-full"
+      >
         {/* Triage Title & Filter Chips */}
-        <div className="flex flex-col gap-gutter-md px-gutter-xs">
+        <div className="shrink-0 flex flex-col gap-3 px-1">
           <div className="flex items-center justify-between gap-gutter-sm">
             <div className="flex items-center gap-gutter-sm">
               <h1 className="font-headline text-headline-lg text-light-on-surface">
@@ -336,7 +322,11 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
         </div>
 
         {/* Email Rows Container */}
-        <ul className="flex flex-col gap-gutter-xs" role="listbox" aria-label="邮件列表">
+        <ul
+          className="flex-1 min-h-0 overflow-y-auto pr-1.5 linen-scroll flex flex-col gap-1.5"
+          role="listbox"
+          aria-label="邮件列表"
+        >
           {filteredEmails.length === 0 ? (
             <li className="py-section px-gutter-lg text-center rounded-lg bg-light-surface-container-low/60 flex flex-col items-center gap-gutter-sm">
               <span
@@ -395,37 +385,39 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
                           {item.sender}
                         </span>
                       </div>
-                      <div className="flex items-center gap-gutter-xs shrink-0">
-                        <time className="font-mono text-mono-sm text-light-on-surface-variant tabular-nums group-hover:hidden">
+                      <div className="relative flex items-center justify-end shrink-0 min-w-[58px] h-6">
+                        <time className="font-mono text-mono-sm text-light-on-surface-variant tabular-nums transition-opacity duration-150 group-hover:opacity-0">
                           {item.time}
                         </time>
-                        <div className="hidden group-hover:flex items-center gap-gutter-xs">
+                        <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150">
                           <button
                             type="button"
                             aria-label="归档"
+                            title="归档"
                             onClick={(e) => {
                               e.stopPropagation();
                               onArchiveEmail(item.id);
                             }}
-                            className="w-7 h-7 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface cursor-pointer"
+                            className="w-6 h-6 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface cursor-pointer"
                           >
-                            <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                            <span className="material-symbols-outlined text-body-lg" aria-hidden="true">
                               archive
                             </span>
                           </button>
                           <button
                             type="button"
                             aria-label="标星"
+                            title="标星"
                             onClick={(e) => {
                               e.stopPropagation();
                               onToggleStar(item.id);
                             }}
-                            className={`w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-light-surface-container cursor-pointer ${
+                            className={`w-6 h-6 rounded-full inline-flex items-center justify-center hover:bg-light-surface-container cursor-pointer ${
                               item.starred ? 'text-light-primary' : 'text-light-on-surface-variant'
                             }`}
                           >
                             <span
-                              className={`material-symbols-outlined text-title-md ${
+                              className={`material-symbols-outlined text-body-lg ${
                                 item.starred ? 'material-symbols-filled' : ''
                               }`}
                               aria-hidden="true"
@@ -441,11 +433,11 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
                         item.unread ? 'font-semibold' : 'font-medium'
                       }`}
                     >
-                      {item.subject}
+                      {cleanMailText(item.subject)}
                     </p>
                     <div className="flex items-center justify-between gap-gutter-sm">
                       <p className="font-body text-body-sm text-light-on-surface-variant truncate">
-                        {item.preview}
+                        {cleanMailText(item.preview)}
                       </p>
                       {item.attachment && (
                         <span
@@ -461,10 +453,38 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
               );
             })
           )}
+
+          {/* Silent Batch Load Older Emails Footer */}
+          {activeFolder === 'inbox' && !searchQuery.trim() && !tagFilter && folderEmails.length > 0 && onLoadOlderEmails && (
+            <li className="pt-2 pb-1 flex justify-center">
+              {hasMoreOlder ? (
+                <button
+                  type="button"
+                  disabled={loadingOlder || syncing}
+                  onClick={onLoadOlderEmails}
+                  className="w-full inline-flex items-center justify-center gap-gutter-xs px-gutter-md py-2.5 rounded-lg bg-light-surface-container-low/80 hover:bg-light-surface-container text-light-on-surface-variant hover:text-light-on-surface font-label text-label-md transition-colors duration-state-change cursor-pointer disabled:opacity-60"
+                >
+                  <span
+                    className={`material-symbols-outlined text-title-md ${loadingOlder ? 'animate-spin' : ''}`}
+                    aria-hidden="true"
+                  >
+                    {loadingOlder ? 'sync' : 'history'}
+                  </span>
+                  <span>
+                    {loadingOlder ? '正在静默加载更早邮件...' : '加载更早邮件（每次 50 封）'}
+                  </span>
+                </button>
+              ) : (
+                <span className="py-2 font-label text-label-sm text-light-on-surface-variant/75">
+                  已加载全部历史邮件
+                </span>
+              )}
+            </li>
+          )}
         </ul>
 
         {/* Keyboard Shortcut Legend */}
-        <div className="flex items-center justify-between px-gutter-sm pt-gutter-sm text-light-on-surface-variant">
+        <div className="shrink-0 flex items-center justify-between px-1 pt-2 border-t border-light-outline-variant/25 text-light-on-surface-variant">
           <div className="flex items-center gap-gutter-md font-label text-label-sm">
             <span className="inline-flex items-center gap-gutter-xs">
               <kbd className="font-mono text-mono-sm px-1.5 py-0.5 rounded-sm bg-light-surface-container-low text-light-on-surface-variant">
@@ -502,13 +522,13 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
         </div>
       </section>
 
-      {/* Right Column: Slide-over Editorial Reading Sheet */}
+      {/* Right Column: Full-Height Editorial Reading Sheet */}
       <article
         aria-label="邮件阅读视图"
-        className="col-span-12 lg:col-span-7 bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-gutter-lg min-h-[760px]"
+        className="flex-1 min-w-0 h-full min-h-0 bg-light-surface-container-lowest rounded-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col overflow-hidden"
       >
         {!activeMail ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-gutter-sm text-center py-section">
+          <div className="flex-1 flex flex-col items-center justify-center gap-gutter-sm text-center p-8">
             <span className="material-symbols-outlined text-display-lg text-light-on-surface-variant">
               mark_email_read
             </span>
@@ -518,12 +538,24 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
           </div>
         ) : (
           <>
+            {/* Pinned Reader Header: Toolbar + Subject + Sender Metadata */}
+            <div className="shrink-0 px-7 pt-6 pb-4 flex flex-col gap-4 border-b border-light-surface-container-high">
             {/* Reader Top Toolbar */}
             <div className="flex items-center justify-between gap-gutter-md">
               <div className="flex items-center gap-gutter-sm">
-                <span className="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container font-label text-label-md">
-                  {activeMail.tag}
-                </span>
+                {FORWARD_SUBJECT_RE.test(cleanMailText(activeMail.subject)) && (
+                  <span className="inline-flex items-center gap-1 px-gutter-sm py-gutter-xs rounded-full bg-light-primary/10 text-light-primary font-label text-label-md">
+                    <span className="material-symbols-outlined text-body-md" aria-hidden="true">
+                      forward
+                    </span>
+                    <span>转发邮件</span>
+                  </span>
+                )}
+                {activeMail.tag && (
+                  <span className="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container font-label text-label-md">
+                    {activeMail.tag}
+                  </span>
+                )}
                 {readerNotice && (
                   <span className="font-label text-label-sm text-light-secondary">
                     {readerNotice}
@@ -626,7 +658,7 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
 
             {/* Editorial Subject Line */}
             <h2 className="font-headline text-headline-lg text-light-on-surface text-balance">
-              {activeMail.subject}
+              {cleanMailText(activeMail.subject)}
             </h2>
 
             {/* Sender Metadata */}
@@ -659,19 +691,17 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
               </time>
             </div>
 
-            <div className="h-px bg-light-surface-container-high" aria-hidden="true" />
-
-            {/* Email Body (Safe text + validated external links only) */}
-            <div className="max-w-prose font-body text-body-lg text-light-on-surface text-pretty flex flex-col gap-gutter-md flex-1">
-              {activeMail.paragraphs.map((p, idx) => (
-                <p key={idx}>{renderSafeParagraph(p)}</p>
-              ))}
-              {activeMail.signoff && (
-                <p className="text-light-on-surface-variant whitespace-pre-line">
-                  {activeMail.signoff}
-                </p>
-              )}
             </div>
+
+            {/* Independently Scrollable Email Body + Translation + Attachments */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-7 py-6 linen-scroll flex flex-col gap-6">
+              {/* Email Body (Structured primary message, signature & forwarded/quoted cards) */}
+              <EmailBodyRenderer
+                emailId={activeMail.id}
+                subject={activeMail.subject}
+                paragraphs={activeMail.paragraphs}
+                signoff={activeMail.signoff}
+              />
 
             {/* AI Translation Panel */}
             {translation && (
@@ -754,8 +784,11 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
               </div>
             )}
 
-            {/* Inline Quick Reply Composer */}
-            <div className="bg-light-surface-container-low rounded-lg p-gutter-md flex flex-col gap-gutter-sm mt-auto">
+            </div>
+
+            {/* Pinned Inline Quick Reply Composer */}
+            <div className="shrink-0 px-7 pb-6 pt-3 border-t border-light-surface-container-high/60">
+            <div className="bg-light-surface-container-low rounded-lg p-gutter-md flex flex-col gap-gutter-sm">
               <div className="flex items-center justify-between gap-gutter-sm">
                 <div className="flex items-center gap-gutter-sm">
                   <span className="font-label text-label-md text-light-on-surface-variant">
@@ -801,7 +834,7 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
                     handleSendReply();
                   }
                 }}
-                placeholder="输入回复内容，按 ⌘ + Enter 快速发送..."
+                placeholder={`输入回复内容，按 ${isMac ? '⌘' : 'Ctrl'} + Enter 快速发送...`}
                 className="w-full bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none resize-none"
               />
 
@@ -845,6 +878,7 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
                   <span className="font-label text-label-lg">发送回复</span>
                 </button>
               </div>
+            </div>
             </div>
           </>
         )}
@@ -894,8 +928,8 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
               setCtxMenu((p) => ({ ...p, open: false }));
               onForwardEmail({
                 recipients: [],
-                subject: `转发：${ctxTargetMail.subject}`,
-                body: `\n\n--- 转发邮件 ---\n发件人：${ctxTargetMail.sender} <${ctxTargetMail.email}>\n时间：${ctxTargetMail.fullTime}\n\n${ctxTargetMail.paragraphs.join('\n\n')}`,
+                subject: `转发：${cleanMailText(ctxTargetMail.subject)}`,
+                body: `\n\n--- 转发邮件 ---\n发件人：${ctxTargetMail.sender} <${ctxTargetMail.email}>\n时间：${ctxTargetMail.fullTime}\n\n${ctxTargetMail.paragraphs.map(cleanMailText).join('\n\n')}`,
                 attachment: ctxTargetMail.attachment,
               });
             }}
@@ -999,31 +1033,53 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
 
             <div
               role="menu"
-              aria-label="选择目标智能分类"
+              aria-label="选择目标标签"
               className="hidden group-hover/move:flex absolute left-full top-0 ml-1.5 w-48 bg-light-surface-container-lowest rounded-xl p-gutter-xs shadow-[0_16px_40px_-8px_rgba(35,25,20,0.18)] ring-1 ring-light-outline-variant/40 flex-col gap-0.5 z-50"
             >
-              {SMART_CATEGORIES.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onChangeTag(ctxTargetMail.id, cat);
-                    setCtxMenu((p) => ({ ...p, open: false }));
-                  }}
-                  className="w-full flex items-center justify-between px-gutter-sm py-gutter-xs rounded-lg text-light-on-surface hover:bg-light-surface-container-low font-body text-body-md transition-colors duration-state-change cursor-pointer"
-                >
-                  <span>{cat}</span>
-                  {ctxTargetMail.tag === cat && (
-                    <span
-                      className="material-symbols-outlined text-title-md text-light-secondary"
-                      aria-hidden="true"
-                    >
-                      check
-                    </span>
-                  )}
-                </button>
-              ))}
+              {labels.length === 0 ? (
+                <div className="px-gutter-sm py-gutter-xs font-body text-body-sm text-light-on-surface-variant">
+                  暂无个人标签，请在「智能分类」中新建
+                </div>
+              ) : (
+                labels.map((lbl) => (
+                  <button
+                    key={lbl.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onChangeTag(ctxTargetMail.id, lbl.name);
+                      setCtxMenu((p) => ({ ...p, open: false }));
+                    }}
+                    className="w-full flex items-center justify-between px-gutter-sm py-gutter-xs rounded-lg text-light-on-surface hover:bg-light-surface-container-low font-body text-body-md transition-colors duration-state-change cursor-pointer"
+                  >
+                    <span className="truncate">{lbl.name}</span>
+                    {ctxTargetMail.tag === lbl.name && (
+                      <span
+                        className="material-symbols-outlined text-title-md text-light-secondary shrink-0"
+                        aria-hidden="true"
+                      >
+                        check
+                      </span>
+                    )}
+                  </button>
+                ))
+              )}
+              {ctxTargetMail.tag && (
+                <>
+                  <div className="h-px bg-light-surface-container-high my-0.5" aria-hidden="true" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onChangeTag(ctxTargetMail.id, '');
+                      setCtxMenu((p) => ({ ...p, open: false }));
+                    }}
+                    className="w-full flex items-center justify-between px-gutter-sm py-gutter-xs rounded-lg text-light-on-surface-variant hover:bg-light-surface-container-low font-body text-body-sm transition-colors duration-state-change cursor-pointer"
+                  >
+                    <span>清除当前标签</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 

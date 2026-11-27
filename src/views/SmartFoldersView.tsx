@@ -9,8 +9,10 @@ interface SmartFoldersViewProps {
   onToggleFolder: (id: string) => void;
   onAddFolder: (folder: SmartFolderItem) => void;
   onUpdateFolder: (id: string, name: string, conditions: string[]) => void;
+  onDeleteFolder: (id: string) => void;
   onAddLabel: (name: string) => void;
   onRenameLabel: (id: string, name: string) => void;
+  onDeleteLabel: (id: string) => void;
   onViewTagInInbox: (tag: string) => void;
 }
 
@@ -21,8 +23,10 @@ export const SmartFoldersView: React.FC<SmartFoldersViewProps> = ({
   onToggleFolder,
   onAddFolder,
   onUpdateFolder,
+  onDeleteFolder,
   onAddLabel,
   onRenameLabel,
+  onDeleteLabel,
   onViewTagInInbox,
 }) => {
   const [selectedFolderId, setSelectedFolderId] = useState(smartFolders[0]?.id || '');
@@ -167,77 +171,137 @@ export const SmartFoldersView: React.FC<SmartFoldersViewProps> = ({
             </span>
           </div>
 
-          <ul className="flex flex-col gap-gutter-md" role="listbox" aria-label="智能文件夹">
-            {filteredFolders.map((folder) => {
-              const isSelected = folder.id === selectedFolder?.id;
-              return (
-                <li
-                  key={folder.id}
-                  role="option"
-                  aria-selected={isSelected}
-                  onClick={() => setSelectedFolderId(folder.id)}
-                  className={`folder-card flex items-start justify-between gap-gutter-lg p-gutter-lg rounded-xl cursor-pointer transition-colors duration-state-change ${
-                    isSelected
-                      ? 'bg-light-surface-container-lowest shadow-[0_12px_36px_-8px_rgba(35,25,20,0.08)] ring-1 ring-light-outline-variant/40'
-                      : 'bg-light-surface-container-lowest/70 hover:bg-light-surface-container-lowest'
-                  }`}
+          {filteredFolders.length === 0 ? (
+            <div className="bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.06)] flex flex-col items-center justify-center text-center gap-gutter-md py-12">
+              <span className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-light-surface-container-low text-light-primary">
+                <span className="material-symbols-outlined text-headline-md" aria-hidden="true">
+                  folder_special
+                </span>
+              </span>
+              <div className="flex flex-col gap-gutter-xs max-w-sm">
+                <h3 className="font-title text-title-md text-light-on-surface">
+                  {searchQuery.trim() ? '未找到匹配的智能文件夹' : '暂无智能文件夹'}
+                </h3>
+                <p className="font-body text-body-sm text-light-on-surface-variant">
+                  {searchQuery.trim()
+                    ? '请尝试更换关键词，或清空搜索框查看全部规则。'
+                    : '你可以按发件人、主题关键词或附件类型创建自动归集规则，让收件箱保持清爽有序。'}
+                </p>
+              </div>
+              {!searchQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={openNewFolderModal}
+                  className="inline-flex items-center justify-center gap-gutter-xs px-gutter-lg py-gutter-sm rounded-full bg-light-primary text-light-on-primary hover:bg-light-primary-container font-label text-label-lg transition-colors duration-state-change cursor-pointer"
                 >
-                  <div className="flex items-start gap-gutter-md min-w-0">
-                    <span className="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-light-surface-container-low text-light-primary shrink-0">
-                      <span className="material-symbols-outlined text-title-lg" aria-hidden="true">
-                        {folder.icon}
+                  <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                    create_new_folder
+                  </span>
+                  <span>创建第一个智能文件夹</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-gutter-md" role="listbox" aria-label="智能文件夹">
+              {filteredFolders.map((folder) => {
+                const isSelected = folder.id === selectedFolder?.id;
+                return (
+                  <li
+                    key={folder.id}
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => setSelectedFolderId(folder.id)}
+                    className={`group folder-card flex items-start justify-between gap-gutter-lg p-gutter-lg rounded-xl cursor-pointer transition-colors duration-state-change ${
+                      isSelected
+                        ? 'bg-light-surface-container-lowest shadow-[0_12px_36px_-8px_rgba(35,25,20,0.08)] ring-1 ring-light-outline-variant/40'
+                        : 'bg-light-surface-container-lowest/70 hover:bg-light-surface-container-lowest'
+                    }`}
+                  >
+                    <div className="flex items-start gap-gutter-md min-w-0">
+                      <span className="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-light-surface-container-low text-light-primary shrink-0">
+                        <span className="material-symbols-outlined text-title-lg" aria-hidden="true">
+                          {folder.icon}
+                        </span>
                       </span>
-                    </span>
-                    <div className="flex flex-col gap-gutter-xs min-w-0">
-                      <div className="flex items-center gap-gutter-sm">
-                        <h3 className="font-title text-title-md text-light-on-surface">
-                          {folder.name}
-                        </h3>
-                        {folder.unread > 0 && (
-                          <span className="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">
-                            {folder.unread} 未读
-                          </span>
-                        )}
+                      <div className="flex flex-col gap-gutter-xs min-w-0">
+                        <div className="flex items-center gap-gutter-sm">
+                          <h3 className="font-title text-title-md text-light-on-surface">
+                            {folder.name}
+                          </h3>
+                          {folder.unread > 0 && (
+                            <span className="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">
+                              {folder.unread} 未读
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-body text-body-sm text-light-on-surface-variant truncate">
+                          {folder.conditions.join(' · ')}
+                        </p>
+                        <span className="font-label text-label-md text-light-on-surface-variant tabular-nums">
+                          共匹配 {folder.total} 封邮件
+                        </span>
                       </div>
-                      <p className="font-body text-body-sm text-light-on-surface-variant truncate">
-                        {folder.conditions.join(' · ')}
-                      </p>
-                      <span className="font-label text-label-md text-light-on-surface-variant tabular-nums">
-                        共匹配 {folder.total} 封邮件
-                      </span>
                     </div>
-                  </div>
 
-                  <SwitchToggle
-                    checked={folder.enabled}
-                    onChange={() => onToggleFolder(folder.id)}
-                    ariaLabel={`切换 ${folder.name} 自动规则`}
-                  />
-                </li>
-              );
-            })}
-          </ul>
+                    <div className="flex items-center gap-gutter-sm shrink-0">
+                      <button
+                        type="button"
+                        aria-label={`删除智能文件夹 ${folder.name}`}
+                        title="删除规则"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteFolder(folder.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-8 h-8 rounded-full text-light-on-surface-variant hover:bg-light-error-container hover:text-light-on-error-container transition-all duration-state-change cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                          delete_outline
+                        </span>
+                      </button>
+                      <SwitchToggle
+                        checked={folder.enabled}
+                        onChange={() => onToggleFolder(folder.id)}
+                        ariaLabel={`切换 ${folder.name} 自动规则`}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
 
         {/* Right Column: Labels & Rule Inspector */}
         <aside aria-label="个人标签与规则预览" className="col-span-12 lg:col-span-5 flex flex-col gap-gutter-lg">
           {/* Rule Preview Card */}
-          {selectedFolder && (
+          {selectedFolder ? (
             <section className="bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-gutter-md">
               <div className="flex items-center justify-between gap-gutter-sm">
                 <span className="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container font-label text-label-md">
                   规则详情预览
                 </span>
-                <button
-                  type="button"
-                  onClick={openEditFolderModal}
-                  className="inline-flex items-center gap-gutter-xs font-label text-label-md text-light-primary hover:underline cursor-pointer"
-                >
-                  <span className="material-symbols-outlined text-title-md" aria-hidden="true">
-                    tune
-                  </span>
-                  <span>调整条件</span>
-                </button>
+                <div className="flex items-center gap-gutter-md">
+                  <button
+                    type="button"
+                    onClick={openEditFolderModal}
+                    className="inline-flex items-center gap-gutter-xs font-label text-label-md text-light-primary hover:underline cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                      tune
+                    </span>
+                    <span>调整条件</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteFolder(selectedFolder.id)}
+                    className="inline-flex items-center gap-gutter-xs font-label text-label-md text-light-error hover:underline cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                      delete_outline
+                    </span>
+                    <span>删除</span>
+                  </button>
+                </div>
               </div>
 
               <h2 className="font-headline text-headline-md text-light-on-surface">
@@ -287,6 +351,15 @@ export const SmartFoldersView: React.FC<SmartFoldersViewProps> = ({
                 </button>
               </div>
             </section>
+          ) : (
+            <section className="bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.06)] flex flex-col gap-gutter-sm">
+              <span className="inline-flex items-center self-start px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-low text-light-on-surface-variant font-label text-label-md">
+                规则详情预览
+              </span>
+              <p className="font-body text-body-md text-light-on-surface-variant">
+                新建并选中左侧任意智能文件夹后，可在此查看与调整自动归集条件。
+              </p>
+            </section>
           )}
 
           {/* Personal Labels Card */}
@@ -298,40 +371,66 @@ export const SmartFoldersView: React.FC<SmartFoldersViewProps> = ({
               </span>
             </div>
 
-            <ul className="flex flex-col gap-gutter-xs">
-              {filteredLabels.map((lbl) => (
-                <li
-                  key={lbl.id}
-                  onClick={() => onViewTagInInbox(lbl.name)}
-                  className="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change cursor-pointer"
-                >
-                  <div className="flex items-center gap-gutter-sm">
-                    <span className={`w-2.5 h-2.5 rounded-full ${lbl.dotClass}`} aria-hidden="true" />
-                    <span className="font-body text-body-md text-light-on-surface">{lbl.name}</span>
-                  </div>
-                  <div className="flex items-center gap-gutter-sm">
-                    <span className="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">
-                      {lbl.count}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={`编辑标签 ${lbl.name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingLabelId(lbl.id);
-                        setLabelNameInput(lbl.name);
-                        setLabelModalOpen(true);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change cursor-pointer"
-                    >
-                      <span className="material-symbols-outlined text-title-md" aria-hidden="true">
-                        edit
+            {filteredLabels.length === 0 ? (
+              <div className="py-6 px-gutter-md rounded-lg bg-light-surface-container-low/60 flex flex-col items-center text-center gap-gutter-sm">
+                <span className="material-symbols-outlined text-headline-sm text-light-on-surface-variant" aria-hidden="true">
+                  label_off
+                </span>
+                <p className="font-body text-body-sm text-light-on-surface-variant">
+                  {searchQuery.trim() ? '未找到匹配的个人标签' : '还没有个人标签，点击上方「新建标签」开始整理邮件。'}
+                </p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-gutter-xs">
+                {filteredLabels.map((lbl) => (
+                  <li
+                    key={lbl.id}
+                    onClick={() => onViewTagInInbox(lbl.name)}
+                    className="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change cursor-pointer"
+                  >
+                    <div className="flex items-center gap-gutter-sm min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${lbl.dotClass}`} aria-hidden="true" />
+                      <span className="font-body text-body-md text-light-on-surface truncate">{lbl.name}</span>
+                    </div>
+                    <div className="flex items-center gap-gutter-xs shrink-0">
+                      <span className="font-mono text-mono-sm text-light-on-surface-variant tabular-nums mr-1">
+                        {lbl.count}
                       </span>
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                      <button
+                        type="button"
+                        aria-label={`编辑标签 ${lbl.name}`}
+                        title="重命名"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingLabelId(lbl.id);
+                          setLabelNameInput(lbl.name);
+                          setLabelModalOpen(true);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                          edit
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`删除标签 ${lbl.name}`}
+                        title="删除标签"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteLabel(lbl.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-error-container hover:text-light-on-error-container transition-opacity duration-state-change cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                          delete_outline
+                        </span>
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </aside>
       </main>

@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { RecipientAutocompleteInput } from '../components/RecipientAutocompleteInput';
 import { formatBytes, mailService } from '../services/mailService';
 import {
   ComposePrefill,
+  ContactItem,
   DraftItem,
   EmailAttachment,
   LlmProfile,
@@ -14,6 +16,7 @@ interface ComposeViewProps {
   profile: UserProfile;
   senderEmail: string;
   activeLlm: LlmProfile;
+  contacts: ContactItem[];
   prefill: ComposePrefill | null;
   onBackToInbox: () => void;
   onSendEmail: (payload: {
@@ -25,58 +28,43 @@ interface ComposeViewProps {
   }) => Promise<{ ok: boolean; sentId?: string; error?: string }>;
   onScheduleEmail: (item: ScheduledEmailItem) => Promise<void>;
   onSaveDraft: (draft: DraftItem) => Promise<void>;
+  onDeleteDraft?: (id: string) => Promise<void> | void;
 }
-
-const DEFAULT_RECIPIENTS = ['lin.chenxi@atelier.cn', 'siyuan.chen@nexuslab.io'];
-const DEFAULT_SUBJECT = '关于 Q4 暖色系设计系统上线的最终排期确认';
-const DEFAULT_BODY = `晨曦、思远：
-
-昨晚已经和各位确认完排版规范与同步引擎的基准测试结果，整体非常稳妥。
-
-接下来的发布节奏建议如下：
-1. 周四上午完成主收件箱与智能分类视图的最后走查；
-2. 周五下午三点进行线上灰度发布，优先覆盖桌面端用户；
-3. 下周一早会复盘首批用户的阅读体验反馈。
-
-附件里附上了更新后的排期表，如有调整欢迎随时回复。
-
-祝好，
-明远`;
 
 export const ComposeView: React.FC<ComposeViewProps> = ({
   profile,
   senderEmail,
   activeLlm,
+  contacts,
   prefill,
   onBackToInbox,
   onSendEmail,
   onScheduleEmail,
   onSaveDraft,
+  onDeleteDraft,
 }) => {
   const [draftId] = useState<string>(prefill?.draftId || `draft-${Date.now()}`);
-  const [recipients, setRecipients] = useState<string[]>(
-    prefill?.recipients !== undefined ? prefill.recipients : DEFAULT_RECIPIENTS
-  );
+  const [recipients, setRecipients] = useState<string[]>(prefill?.recipients ?? []);
   const [recipientInput, setRecipientInput] = useState('');
   const [showCc, setShowCc] = useState(Boolean(prefill?.cc));
-  const [ccValue, setCcValue] = useState(prefill?.cc || '');
-  const [subject, setSubject] = useState(
-    prefill?.subject !== undefined ? prefill.subject : DEFAULT_SUBJECT
+  const [ccList, setCcList] = useState<string[]>(() =>
+    (prefill?.cc || '')
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
   );
-  const [body, setBody] = useState(
-    prefill?.body !== undefined ? prefill.body : DEFAULT_BODY
-  );
+  const [ccInput, setCcInput] = useState('');
+  const [subject, setSubject] = useState(prefill?.subject ?? '');
+  const [body, setBody] = useState(prefill?.body ?? '');
   const [attachments, setAttachments] = useState<EmailAttachment[]>(
-    prefill !== null
-      ? prefill.attachments && prefill.attachments.length > 0
-        ? prefill.attachments
-        : prefill.attachment
-        ? [prefill.attachment]
-        : []
-      : [{ name: 'Q4_Release_Schedule_v3.pdf', size: '1.8 MB' }]
+    prefill?.attachments && prefill.attachments.length > 0
+      ? prefill.attachments
+      : prefill?.attachment
+      ? [prefill.attachment]
+      : []
   );
 
-  const [saveStatus, setSaveStatus] = useState('草稿已自动保存 · 刚刚');
+  const [saveStatus, setSaveStatus] = useState('新邮件草稿');
   const [sendingNow, setSendingNow] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentBannerInfo, setSentBannerInfo] = useState<{
@@ -119,12 +107,13 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
 
   const charCount = body.replace(/\s+/g, '').length;
 
-  const handleAddRecipient = (raw: string) => {
-    const trimmed = raw.trim().replace(/,$/, '');
-    if (trimmed && !recipients.includes(trimmed)) {
-      setRecipients((prev) => [...prev, trimmed]);
-    }
-    setRecipientInput('');
+  const resolveFinalCcString = () => {
+    const extra = ccInput.trim();
+    const list =
+      extra && !ccList.some((c) => c.toLowerCase() === extra.toLowerCase())
+        ? [...ccList, extra]
+        : ccList;
+    return list.join(', ');
   };
 
   const handleFormat = (type: 'bold' | 'italic' | 'list' | 'quote' | 'link') => {
@@ -233,6 +222,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
     } else {
       setSentBannerInfo({ count: payload.recipients.length, pendingUndo: false, secondsLeft: 0 });
       setSaveStatus('邮件已通过 SMTP 发送成功');
+      void onDeleteDraft?.(draftId);
     }
   };
 
@@ -252,7 +242,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
 
     const payload = {
       recipients: finalRecipients,
-      cc: ccValue,
+      cc: resolveFinalCcString(),
       subject: subject.trim() || '（无主题）',
       body,
       attachments,
@@ -302,16 +292,29 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
   };
 
   const handleManualSaveDraft = async () => {
+    const finalRecipients =
+      recipientInput.trim() && !recipients.includes(recipientInput.trim())
+        ? [...recipients, recipientInput.trim()]
+        : recipients;
+    if (recipientInput.trim()) {
+      setRecipients(finalRecipients);
+      setRecipientInput('');
+    }
+    const finalCc = resolveFinalCcString();
+    if (ccInput.trim()) {
+      setCcList(finalCc.split(/[,;]+/).map((s) => s.trim()).filter(Boolean));
+      setCcInput('');
+    }
     await onSaveDraft({
       id: draftId,
-      recipients,
-      cc: ccValue,
+      recipients: finalRecipients,
+      cc: finalCc,
       subject,
       body,
       attachments,
       updatedAt: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
     });
-    setSaveStatus('草稿已保存至本地数据库 · 刚刚');
+    setSaveStatus('已保存至草稿箱 · 刚刚');
   };
 
   const handleScheduleOption = async (label: string, targetDate: Date) => {
@@ -329,7 +332,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
     await onScheduleEmail({
       id: `sched-${Date.now()}`,
       recipients: finalRecipients,
-      cc: ccValue,
+      cc: resolveFinalCcString(),
       subject: subject.trim() || '（无主题）',
       body,
       attachments,
@@ -342,7 +345,11 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
 
   const handleDiscard = () => {
     handleUndoPendingSend();
+    void onDeleteDraft?.(draftId);
     setRecipients([]);
+    setRecipientInput('');
+    setCcList([]);
+    setCcInput('');
     setSubject('');
     setBody('');
     setAttachments([]);
@@ -350,13 +357,13 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
     setPolishModel(null);
     setSentBannerInfo(null);
     setSendError(null);
-    setSaveStatus('草稿已清空');
+    setSaveStatus('草稿已清空并删除');
   };
 
   return (
-    <div className="min-h-screen bg-light-surface flex flex-col px-gutter-xl py-gutter-lg gap-gutter-xl max-w-[1440px] mx-auto">
+    <div className="h-screen w-full overflow-hidden bg-light-surface flex flex-col px-4 py-3 sm:px-6 sm:py-4 gap-3 sm:gap-4">
       {/* Contextual Task Flow Header */}
-      <header className="bg-light-surface-container-lowest rounded-xl px-gutter-lg py-gutter-md shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-gutter-lg sticky top-4 z-20">
+      <header className="shrink-0 w-full bg-light-surface-container-lowest rounded-xl px-4 sm:px-6 py-2.5 sm:py-3 shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-4 z-20">
         <div className="flex items-center gap-gutter-md">
           <button
             type="button"
@@ -395,10 +402,10 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
       </header>
 
       {/* Focused Single-Column Stationery Sheet */}
-      <main className="w-full flex-1 flex flex-col gap-gutter-lg">
+      <main className="w-full max-w-5xl mx-auto flex-1 min-h-0 flex flex-col gap-3 overflow-hidden">
         {/* Error Banner */}
         {sendError && (
-          <div className="flex items-center justify-between gap-gutter-md px-gutter-lg py-gutter-md rounded-xl bg-light-error-container text-light-on-error-container">
+          <div className="shrink-0 flex items-center justify-between gap-gutter-md px-gutter-lg py-gutter-md rounded-xl bg-light-error-container text-light-on-error-container">
             <div className="flex items-center gap-gutter-sm">
               <span className="material-symbols-outlined text-title-lg" aria-hidden="true">
                 error_outline
@@ -417,7 +424,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
 
         {/* Sent / Undo-Buffer Confirmation Banner */}
         {sentBannerInfo && (
-          <div className="flex items-center justify-between gap-gutter-md px-gutter-lg py-gutter-md rounded-xl bg-light-secondary-container text-light-on-secondary-container">
+          <div className="shrink-0 flex items-center justify-between gap-gutter-md px-gutter-lg py-gutter-md rounded-xl bg-light-secondary-container text-light-on-secondary-container">
             <div className="flex items-center gap-gutter-sm">
               <span className="material-symbols-outlined text-title-lg" aria-hidden="true">
                 {sentBannerInfo.pendingUndo ? 'schedule_send' : 'check_circle'}
@@ -453,54 +460,27 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
 
         <section
           aria-label="邮件撰写纸面"
-          className="bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-gutter-lg flex-1"
+          className="bg-light-surface-container-lowest rounded-xl px-5 py-4 sm:px-7 sm:py-5 shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-3 sm:gap-4 flex-1 min-h-0 overflow-hidden"
         >
           {/* Envelope Metadata: To, Cc/Bcc, From */}
-          <div className="flex flex-col gap-gutter-sm">
+          <div className="shrink-0 flex flex-col gap-1.5 relative z-30">
             {/* To Row */}
-            <div className="flex items-center justify-between gap-gutter-md py-gutter-xs">
-              <div className="flex items-center flex-wrap gap-gutter-sm flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-gutter-md py-gutter-xs">
+              <div className="flex items-center gap-gutter-sm flex-1 min-w-0">
                 <span className="font-label text-label-md text-light-on-surface-variant w-12 shrink-0">
                   收件人
                 </span>
-                <div className="flex items-center flex-wrap gap-gutter-xs">
-                  {recipients.map((email) => (
-                    <span
-                      key={email}
-                      className="inline-flex items-center gap-gutter-xs pl-gutter-md pr-gutter-xs py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container"
-                    >
-                      <span className="font-label text-label-md">{email}</span>
-                      <button
-                        type="button"
-                        aria-label={`移除 ${email}`}
-                        onClick={() =>
-                          setRecipients((prev) => prev.filter((item) => item !== email))
-                        }
-                        className="inline-flex items-center justify-center w-5 h-5 rounded-full hover:bg-light-surface-container-lowest transition-colors duration-state-change cursor-pointer"
-                      >
-                        <span className="material-symbols-outlined text-body-sm" aria-hidden="true">
-                          close
-                        </span>
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <input
-                  type="email"
-                  value={recipientInput}
-                  onChange={(e) => setRecipientInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if ((e.key === 'Enter' || e.key === ',') && recipientInput.trim()) {
-                      e.preventDefault();
-                      handleAddRecipient(recipientInput);
-                    }
+                <RecipientAutocompleteInput
+                  values={recipients}
+                  onChange={(next) => {
+                    setRecipients(next);
+                    setSaveStatus('草稿已自动保存 · 刚刚');
                   }}
-                  onBlur={() => {
-                    if (recipientInput.trim()) handleAddRecipient(recipientInput);
-                  }}
-                  aria-label="添加收件人邮箱"
-                  placeholder="输入邮箱后按回车添加..."
-                  className="min-w-[180px] flex-1 bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none"
+                  inputValue={recipientInput}
+                  onInputValueChange={setRecipientInput}
+                  contacts={contacts}
+                  ariaLabel="添加收件人邮箱"
+                  placeholder="输入姓名、拼音首字母（如 zhl）或邮箱..."
                 />
               </div>
 
@@ -515,17 +495,21 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
 
             {/* Optional Cc Row */}
             {showCc && (
-              <div className="flex items-center gap-gutter-md py-gutter-xs">
+              <div className="flex items-center gap-gutter-sm py-gutter-xs">
                 <span className="font-label text-label-md text-light-on-surface-variant w-12 shrink-0">
                   抄送
                 </span>
-                <input
-                  type="email"
-                  value={ccValue}
-                  onChange={(e) => setCcValue(e.target.value)}
-                  aria-label="抄送邮箱"
-                  placeholder="添加抄送人邮箱..."
-                  className="w-full bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none"
+                <RecipientAutocompleteInput
+                  values={ccList}
+                  onChange={(next) => {
+                    setCcList(next);
+                    setSaveStatus('草稿已自动保存 · 刚刚');
+                  }}
+                  inputValue={ccInput}
+                  onInputValueChange={setCcInput}
+                  contacts={contacts}
+                  ariaLabel="抄送邮箱"
+                  placeholder="输入姓名、拼音首字母或邮箱添加抄送..."
                 />
               </div>
             )}
@@ -541,10 +525,10 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
             </div>
           </div>
 
-          <div className="h-px bg-light-surface-container-high" aria-hidden="true" />
+          <div className="shrink-0 h-px bg-light-surface-container-high" aria-hidden="true" />
 
           {/* Editorial Subject Line */}
-          <div>
+          <div className="shrink-0">
             <label htmlFor="compose-subject" className="sr-only">
               邮件主题
             </label>
@@ -557,12 +541,12 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
                 setSaveStatus('草稿已自动保存 · 刚刚');
               }}
               placeholder="填写邮件主题..."
-              className="w-full bg-transparent border-0 p-0 font-headline text-headline-lg text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none"
+              className="w-full bg-transparent border-0 p-0 font-headline text-headline-md sm:text-headline-lg text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none"
             />
           </div>
 
           {/* Minimalist Inline Formatting Strip */}
-          <div className="flex flex-wrap items-center justify-between gap-gutter-md bg-light-surface-container-low rounded-full px-gutter-md py-gutter-xs">
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 bg-light-surface-container-low rounded-xl sm:rounded-full px-3 py-1.5">
             <div className="flex items-center gap-gutter-xs">
               <button
                 type="button"
@@ -666,28 +650,27 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
             </div>
           </div>
 
-          {/* Spacious Writing Canvas */}
-          <div className="flex-1 flex flex-col">
+          {/* Spacious Writing Canvas (Full width, single sleek scrollbar) */}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <label htmlFor="compose-body" className="sr-only">
               邮件正文
             </label>
             <textarea
               ref={bodyRef}
               id="compose-body"
-              rows={11}
               value={body}
               onChange={(e) => {
                 setBody(e.target.value);
                 setSaveStatus('草稿已自动保存 · 刚刚');
               }}
               placeholder="从这里开始书写..."
-              className="w-full max-w-prose bg-transparent border-0 p-0 font-body text-body-lg text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none resize-none leading-relaxed flex-1"
+              className="w-full h-full flex-1 overflow-y-auto linen-scroll pr-2 bg-transparent border-0 p-0 font-body text-body-lg text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none resize-none leading-relaxed"
             />
           </div>
 
           {/* Attached File Strip */}
           {attachments.length > 0 && (
-            <div className="flex flex-wrap items-center gap-gutter-sm">
+            <div className="shrink-0 max-h-24 overflow-y-auto linen-scroll flex flex-wrap items-center gap-gutter-sm">
               {attachments.map((att, index) => (
                 <div
                   key={`${att.name}-${index}`}
@@ -724,10 +707,10 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
             </div>
           )}
 
-          <div className="h-px bg-light-surface-container-high" aria-hidden="true" />
+          <div className="shrink-0 h-px bg-light-surface-container-high" aria-hidden="true" />
 
           {/* Bottom Action & Schedule Bar */}
-          <div className="flex items-center justify-end gap-gutter-md">
+          <div className="shrink-0 flex items-center justify-end gap-gutter-md">
             <div className="relative flex items-center gap-gutter-sm">
               <button
                 type="button"

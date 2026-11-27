@@ -85,17 +85,16 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   // New Filter Builder Modal (Stitch screen _________1.html)
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [ruleName, setRuleName] = useState('账单与电子发票自动归档');
+  const [ruleName, setRuleName] = useState('');
   const [logicMode, setLogicMode] = useState<'AND' | 'OR'>('OR');
   const [conditions, setConditions] = useState<FilterCondition[]>([
-    { field: '发件人', op: '包含', value: 'billing@' },
-    { field: '主题', op: '包含', value: '发票' },
+    { field: '发件人', op: '包含', value: '' },
   ]);
   const [hasAttachmentCheck, setHasAttachmentCheck] = useState(false);
-  const [actionTagCheck, setActionTagCheck] = useState(true);
-  const [actionTagValue, setActionTagValue] = useState('财务票据');
-  const [actionArchiveCheck, setActionArchiveCheck] = useState(true);
-  const [actionReadCheck, setActionReadCheck] = useState(true);
+  const [actionTagCheck, setActionTagCheck] = useState(false);
+  const [actionTagValue, setActionTagValue] = useState('');
+  const [actionArchiveCheck, setActionArchiveCheck] = useState(false);
+  const [actionReadCheck, setActionReadCheck] = useState(false);
   const [actionStarCheck, setActionStarCheck] = useState(false);
   const [applyExistingCheck, setApplyExistingCheck] = useState(true);
 
@@ -251,7 +250,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const modelPreview = llmModel.trim() || 'gpt-4o-mini';
 
   return (
-    <div className="min-h-screen bg-light-surface flex flex-col px-gutter-xl py-gutter-lg gap-gutter-xl max-w-[1440px] mx-auto">
+    <div className="min-h-screen w-full bg-light-surface flex flex-col px-6 py-4 gap-6 max-w-[1720px] mx-auto">
       {/* Contextual Header */}
       <header className="bg-light-surface-container-lowest rounded-xl px-gutter-lg py-gutter-md shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-gutter-lg sticky top-4 z-20">
         <div className="flex items-center gap-gutter-md">
@@ -442,35 +441,49 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               </button>
             </div>
 
-            <ul className="flex flex-col gap-gutter-sm">
-              {filters.map((f) => (
-                <li
-                  key={f.id}
-                  className="flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg bg-light-surface-container-low/70"
+            {filters.length === 0 ? (
+              <div className="py-8 px-gutter-md rounded-lg bg-light-surface-container-low/60 flex flex-col items-center text-center gap-gutter-xs">
+                <span
+                  className="material-symbols-outlined text-headline-sm text-light-on-surface-variant"
+                  aria-hidden="true"
                 >
-                  <div className="flex flex-col gap-gutter-xs min-w-0">
-                    <div className="flex items-center gap-gutter-sm">
-                      <span className="font-title text-title-md text-light-on-surface">
-                        {f.name}
-                      </span>
-                      <span className="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">
-                        已处理 {f.hits} 封
-                      </span>
+                  filter_alt_off
+                </span>
+                <p className="font-body text-body-sm text-light-on-surface-variant">
+                  暂无自动过滤规则，点击右上角「新建过滤规则」即可按需创建。
+                </p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-gutter-sm">
+                {filters.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg bg-light-surface-container-low/70"
+                  >
+                    <div className="flex flex-col gap-gutter-xs min-w-0">
+                      <div className="flex items-center gap-gutter-sm">
+                        <span className="font-title text-title-md text-light-on-surface">
+                          {f.name}
+                        </span>
+                        <span className="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">
+                          已处理 {f.hits} 封
+                        </span>
+                      </div>
+                      <p className="font-body text-body-sm text-light-on-surface-variant">
+                        条件：{f.condition}
+                      </p>
+                      <p className="font-body text-body-sm text-light-on-surface">动作：{f.action}</p>
                     </div>
-                    <p className="font-body text-body-sm text-light-on-surface-variant">
-                      条件：{f.condition}
-                    </p>
-                    <p className="font-body text-body-sm text-light-on-surface">动作：{f.action}</p>
-                  </div>
 
-                  <SwitchToggle
-                    checked={f.enabled}
-                    onChange={() => onToggleFilter(f.id)}
-                    ariaLabel={`切换规则 ${f.name}`}
-                  />
-                </li>
-              ))}
-            </ul>
+                    <SwitchToggle
+                      checked={f.enabled}
+                      onChange={() => onToggleFilter(f.id)}
+                      ariaLabel={`切换规则 ${f.name}`}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           {/* Section 2: Auto-Forwarding & Vacation Responder */}
@@ -898,16 +911,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     />
                     <span className="font-body text-body-md text-light-on-surface">添加标签</span>
                   </div>
-                  <select
+                  <input
+                    type="text"
                     value={actionTagValue}
                     onChange={(e) => setActionTagValue(e.target.value)}
-                    className="px-gutter-sm py-1 rounded-full bg-light-surface-container-lowest border-0 font-label text-label-md text-light-on-surface focus:ring-1 focus:ring-light-primary focus:outline-none"
-                  >
-                    <option>财务票据</option>
-                    <option>设计评审</option>
-                    <option>精选订阅</option>
-                    <option>工程研发</option>
-                  </select>
+                    placeholder="输入标签名"
+                    className="w-28 px-gutter-sm py-1 rounded-full bg-light-surface-container-lowest border-0 font-label text-label-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-1 focus:ring-light-primary focus:outline-none"
+                  />
                 </label>
 
                 <label className="flex items-center gap-gutter-sm p-gutter-md rounded-xl bg-light-surface-container-low/80 cursor-pointer hover:bg-light-surface-container-low">

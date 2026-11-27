@@ -325,88 +325,11 @@ export const INITIAL_CONTACTS: ContactItem[] = [
   },
 ];
 
-export const INITIAL_SMART_FOLDERS: SmartFolderItem[] = [
-  {
-    id: 'sf-1',
-    name: '设计评审与反馈',
-    icon: 'palette',
-    total: 12,
-    unread: 2,
-    enabled: true,
-    tag: '设计评审',
-    conditions: ['主题包含 "设计"', '主题包含 "排版"', '发件人 @atelier.cn'],
-    actionText: '自动添加标签「设计评审」，并保留在收件箱优先展示。',
-  },
-  {
-    id: 'sf-2',
-    name: '精选周刊与订阅',
-    icon: 'auto_stories',
-    total: 28,
-    unread: 4,
-    enabled: true,
-    tag: '精选订阅',
-    conditions: ['发件人包含 digest@', '发件人包含 newsletter@', '含退订链接'],
-    actionText: '自动添加标签「精选订阅」，跳过收件箱归入每日阅读角。',
-  },
-  {
-    id: 'sf-3',
-    name: '财务票据与账单',
-    icon: 'receipt_long',
-    total: 9,
-    unread: 0,
-    enabled: true,
-    tag: '财务票据',
-    conditions: ['主题包含 "发票"', '主题包含 "账单"', '包含 PDF 附件'],
-    actionText: '自动添加标签「财务票据」，并标记为低打扰归档备查。',
-  },
-  {
-    id: 'sf-4',
-    name: '工程研发与发布',
-    icon: 'terminal',
-    total: 19,
-    unread: 1,
-    enabled: true,
-    tag: '工程研发',
-    conditions: ['发件人 @nexuslab.io', '主题包含 "测试报告"'],
-    actionText: '自动添加标签「工程研发」，保留在收件箱并开启桌面提醒。',
-  },
-];
+export const INITIAL_SMART_FOLDERS: SmartFolderItem[] = [];
 
-export const INITIAL_LABELS: LabelItem[] = [
-  { id: 'lbl-1', name: '设计评审', count: 12, dotClass: 'bg-light-primary' },
-  { id: 'lbl-2', name: '品牌合作', count: 7, dotClass: 'bg-light-secondary' },
-  { id: 'lbl-3', name: '工程研发', count: 19, dotClass: 'bg-light-tertiary' },
-  { id: 'lbl-4', name: '精选订阅', count: 28, dotClass: 'bg-light-primary-container' },
-  { id: 'lbl-5', name: '日程通知', count: 5, dotClass: 'bg-light-on-surface-variant' },
-  { id: 'lbl-6', name: '财务票据', count: 9, dotClass: 'bg-light-secondary' },
-];
+export const INITIAL_LABELS: LabelItem[] = [];
 
-export const INITIAL_FILTERS: FilterRuleItem[] = [
-  {
-    id: 'flt-1',
-    name: '推广与营销退订邮件',
-    condition: '正文包含 "退订" AND 来自非联系人',
-    action: '自动归档并跳过收件箱',
-    hits: 42,
-    enabled: true,
-  },
-  {
-    id: 'flt-2',
-    name: '大附件自动标记',
-    condition: '附件总体积 > 10 MB',
-    action: '添加标签「大文件」并保留在收件箱',
-    hits: 6,
-    enabled: true,
-  },
-  {
-    id: 'flt-3',
-    name: '账单与电子发票归档',
-    condition: '发件人包含 billing@ OR 主题包含 "发票"',
-    action: '标记已读并归入「财务票据」',
-    hits: 14,
-    enabled: true,
-  },
-];
+export const INITIAL_FILTERS: FilterRuleItem[] = [];
 
 export const INITIAL_LLM_PROFILES: LlmProfile[] = [
   {
@@ -465,8 +388,8 @@ export const INITIAL_PROFILE: UserProfile = {
 
 export const INITIAL_SYSTEM_SETTINGS: SystemSettingsState = {
   vacationResponder: false,
-  autoForward: true,
-  blocklist: ['promo@ads-network.cn', '@spam-digest.io'],
-  syncFrequency: '实时推送',
-  cacheText: '已缓存最近 90 天附件，共占用 1.2 GB',
+  autoForward: false,
+  blocklist: [],
+  syncFrequency: '每 5 分钟',
+  cacheText: '本地附件缓存当前占用 0 KB',
 };

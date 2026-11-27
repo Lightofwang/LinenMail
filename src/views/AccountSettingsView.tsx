@@ -142,7 +142,7 @@ export const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-light-surface flex flex-col px-gutter-xl py-gutter-lg gap-gutter-xl max-w-[1440px] mx-auto">
+    <div className="min-h-screen w-full bg-light-surface flex flex-col px-6 py-4 gap-6 max-w-[1720px] mx-auto">
       {/* Contextual Header */}
       <header className="bg-light-surface-container-lowest rounded-xl px-gutter-lg py-gutter-md shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-gutter-lg sticky top-4 z-20">
         <div className="flex items-center gap-gutter-md">
