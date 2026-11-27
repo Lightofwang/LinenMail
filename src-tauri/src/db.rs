@@ -211,6 +211,20 @@ impl Database {
                     source TEXT NOT NULL DEFAULT 'email',
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS imap_folders (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL,
+                    raw_name TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    folder_key TEXT NOT NULL,
+                    delimiter TEXT NOT NULL DEFAULT '/',
+                    kind TEXT NOT NULL DEFAULT 'custom',
+                    last_uid INTEGER NOT NULL DEFAULT 0,
+                    synced_at TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_imap_folders_account ON imap_folders(account_id);
                 ",
             )
             .map_err(|e| format!("数据库表结构迁移失败: {}", e))
@@ -717,11 +731,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_oldest_remote_uid(&self, account_id: &str) -> Option<u32> {
+    pub fn get_oldest_remote_uid(&self, account_id: &str, folder_key: &str) -> Option<u32> {
         self.conn
             .query_row(
-                "SELECT MIN(remote_uid) FROM emails WHERE account_id = ?1 AND remote_uid IS NOT NULL AND remote_uid > 0",
-                params![account_id],
+                "SELECT MIN(remote_uid) FROM emails WHERE account_id = ?1 AND folder = ?2 AND remote_uid IS NOT NULL AND remote_uid > 0",
+                params![account_id, folder_key],
                 |r| r.get::<_, Option<i64>>(0),
             )
             .ok()
@@ -743,16 +757,26 @@ impl Database {
     }
 
     pub fn delete_account(&self, account_id: &str) -> Result<(), String> {
+        let _ = self.conn.execute(
+            "DELETE FROM imap_folders WHERE account_id = ?1",
+            params![account_id],
+        );
         self.conn
             .execute("DELETE FROM accounts WHERE id = ?1", params![account_id])
             .map_err(|e| format!("删除账户失败: {}", e))?;
         Ok(())
     }
 
-    pub fn has_email_by_uid_or_msgid(&self, account_id: &str, uid: u32, msg_id: Option<&str>) -> bool {
+    pub fn has_email_by_uid_or_msgid(
+        &self,
+        account_id: &str,
+        folder_key: &str,
+        uid: u32,
+        msg_id: Option<&str>,
+    ) -> bool {
         if let Ok(exists) = self.conn.query_row(
-            "SELECT 1 FROM emails WHERE account_id = ?1 AND remote_uid = ?2 LIMIT 1",
-            params![account_id, uid as i64],
+            "SELECT 1 FROM emails WHERE account_id = ?1 AND folder = ?2 AND remote_uid = ?3 LIMIT 1",
+            params![account_id, folder_key, uid as i64],
             |_| Ok(true),
         ) {
             if exists {
@@ -762,8 +786,8 @@ impl Database {
         if let Some(mid) = msg_id {
             if !mid.is_empty() {
                 if let Ok(exists) = self.conn.query_row(
-                    "SELECT 1 FROM emails WHERE account_id = ?1 AND message_id = ?2 LIMIT 1",
-                    params![account_id, mid],
+                    "SELECT 1 FROM emails WHERE account_id = ?1 AND folder = ?2 AND message_id = ?3 LIMIT 1",
+                    params![account_id, folder_key, mid],
                     |_| Ok(true),
                 ) {
                     if exists {
@@ -927,16 +951,24 @@ impl Database {
         Ok(emails)
     }
 
-    pub fn get_email_remote_ref(&self, email_id: &str) -> Result<Option<(String, u32)>, String> {
+    pub fn get_email_remote_ref(&self, email_id: &str) -> Result<Option<(String, u32, String)>, String> {
         self.conn
             .query_row(
-                "SELECT account_id, remote_uid FROM emails WHERE id = ?1",
+                "SELECT account_id, remote_uid, folder FROM emails WHERE id = ?1",
                 params![email_id],
                 |row| {
                     let aid: Option<String> = row.get(0)?;
                     let uid: Option<i64> = row.get(1)?;
+                    let folder: String = row.get(2)?;
                     Ok(match (aid, uid) {
-                        (Some(a), Some(u)) => Some((a, u as u32)),
+                        (Some(a), Some(u)) => {
+                            let prefix = format!("imap:{}:", a);
+                            let mailbox = folder
+                                .strip_prefix(&prefix)
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| "INBOX".to_string());
+                            Some((a, u as u32, mailbox))
+                        }
                         _ => None,
                     })
                 },
@@ -1795,6 +1827,222 @@ impl Database {
         })
     }
 
+    pub fn list_unrepaired_replacement_emails(&self, account_id: &str) -> Vec<(String, u32)> {
+        let attempted: std::collections::HashSet<String> = self
+            .get_kv::<Vec<String>>("repaired_emoji_emails_v1")
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        let pattern = "%\u{FFFD}%";
+        let Ok(mut stmt) = self.conn.prepare(
+            "SELECT id, remote_uid FROM emails
+             WHERE account_id = ?1
+               AND folder = 'inbox'
+               AND remote_uid IS NOT NULL
+               AND deleted = 0
+               AND (paragraphs_json LIKE ?2 OR preview LIKE ?2 OR subject LIKE ?2)
+             LIMIT 30",
+        ) else {
+            return vec![];
+        };
+
+        let Ok(rows) = stmt.query_map(params![account_id, pattern], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        }) else {
+            return vec![];
+        };
+
+        rows.flatten()
+            .filter_map(|(id, uid)| {
+                if uid > 0 && !attempted.contains(&id) {
+                    Some((id, uid as u32))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn mark_replacement_emails_attempted(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        let mut attempted = self
+            .get_kv::<Vec<String>>("repaired_emoji_emails_v1")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        for id in ids {
+            if !attempted.contains(id) {
+                attempted.push(id.clone());
+            }
+        }
+        let _ = self.set_kv("repaired_emoji_emails_v1", &attempted);
+    }
+
+    pub fn update_email_repaired_content(
+        &self,
+        email_id: &str,
+        subject: &str,
+        preview: &str,
+        paragraphs: &[String],
+    ) -> Result<(), String> {
+        let p_json = serde_json::to_string(paragraphs).unwrap_or_else(|_| "[]".into());
+        self.conn
+            .execute(
+                "UPDATE emails SET subject = ?1, preview = ?2, paragraphs_json = ?3 WHERE id = ?4",
+                params![subject, preview, p_json, email_id],
+            )
+            .map_err(|e| format!("更新修复后的邮件正文失败: {}", e))?;
+        Ok(())
+    }
+
+    pub fn replace_account_imap_folders(
+        &self,
+        account_id: &str,
+        folders: &[ImapFolderItem],
+    ) -> Result<(), String> {
+        let mut valid_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for f in folders {
+            valid_ids.insert(f.id.clone());
+            self.conn
+                .execute(
+                    "INSERT INTO imap_folders
+                     (id, account_id, raw_name, display_name, folder_key, delimiter, kind, last_uid, synced_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                     ON CONFLICT(id) DO UPDATE SET
+                        display_name = excluded.display_name,
+                        folder_key = excluded.folder_key,
+                        delimiter = excluded.delimiter,
+                        kind = excluded.kind",
+                    params![
+                        f.id,
+                        f.account_id,
+                        f.raw_name,
+                        f.display_name,
+                        f.folder_key,
+                        f.delimiter,
+                        f.kind,
+                        f.last_uid as i64,
+                        f.synced_at,
+                    ],
+                )
+                .map_err(|e| format!("保存 IMAP 文件夹失败: {}", e))?;
+        }
+
+        // Remove folders that no longer exist on the remote server
+        let existing_ids: Vec<String> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id FROM imap_folders WHERE account_id = ?1")
+                .map_err(|e| format!("查询已有文件夹失败: {}", e))?;
+            let rows = stmt
+                .query_map(params![account_id], |row| row.get::<_, String>(0))
+                .map_err(|e| format!("读取已有文件夹失败: {}", e))?;
+            rows.flatten().collect()
+        };
+
+        for old_id in existing_ids {
+            if !valid_ids.contains(&old_id) {
+                let _ = self.conn.execute("DELETE FROM imap_folders WHERE id = ?1", params![old_id]);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn update_imap_folder_cursor(
+        &self,
+        folder_id: &str,
+        last_uid: u32,
+        synced_at: &str,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE imap_folders SET last_uid = MAX(last_uid, ?1), synced_at = ?2 WHERE id = ?3",
+                params![last_uid as i64, synced_at, folder_id],
+            )
+            .map_err(|e| format!("更新文件夹同步游标失败: {}", e))?;
+        Ok(())
+    }
+
+    pub fn list_imap_folders(&self) -> Result<Vec<ImapFolderItem>, String> {
+        let mut counts: std::collections::HashMap<String, (i64, i64)> =
+            std::collections::HashMap::new();
+        {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT folder, COUNT(*), SUM(CASE WHEN unread = 1 THEN 1 ELSE 0 END)
+                     FROM emails WHERE deleted = 0 AND archived = 0 GROUP BY folder",
+                )
+                .map_err(|e| format!("统计文件夹邮件数失败: {}", e))?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2).unwrap_or(0),
+                    ))
+                })
+                .map_err(|e| format!("读取文件夹统计失败: {}", e))?;
+            for (folder_key, total, unread) in rows.flatten() {
+                counts.insert(folder_key, (total, unread));
+            }
+        }
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT f.id, f.account_id, COALESCE(a.email, ''), f.raw_name, f.display_name,
+                        f.folder_key, f.delimiter, f.kind, f.last_uid, f.synced_at
+                 FROM imap_folders f
+                 LEFT JOIN accounts a ON a.id = f.account_id
+                 ORDER BY CASE f.kind
+                     WHEN 'custom' THEN 0
+                     WHEN 'sent' THEN 1
+                     WHEN 'archive' THEN 2
+                     WHEN 'junk' THEN 3
+                     WHEN 'trash' THEN 4
+                     ELSE 5
+                 END, f.display_name ASC",
+            )
+            .map_err(|e| format!("读取 IMAP 文件夹列表失败: {}", e))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let folder_key: String = row.get(5)?;
+                let (email_count, unread_count) = counts.get(&folder_key).copied().unwrap_or((0, 0));
+                let last_uid: i64 = row.get(8)?;
+                Ok(ImapFolderItem {
+                    id: row.get(0)?,
+                    account_id: row.get(1)?,
+                    account_email: row.get(2)?,
+                    raw_name: row.get(3)?,
+                    display_name: row.get(4)?,
+                    folder_key,
+                    delimiter: row.get(6)?,
+                    kind: row.get(7)?,
+                    last_uid: last_uid.max(0) as u32,
+                    synced_at: row.get(9)?,
+                    email_count,
+                    unread_count,
+                })
+            })
+            .map_err(|e| format!("解析 IMAP 文件夹列表失败: {}", e))?;
+
+        Ok(rows.flatten().collect())
+    }
+
+    pub fn get_imap_folder(&self, id_or_key: &str) -> Result<Option<ImapFolderItem>, String> {
+        let all = self.list_imap_folders()?;
+        Ok(all
+            .into_iter()
+            .find(|f| f.id == id_or_key || f.folder_key == id_or_key))
+    }
+
     pub fn get_workspace_snapshot(&self) -> Result<WorkspaceSnapshot, String> {
         let emails = self.list_emails()?;
         let accounts = self.list_accounts()?;
@@ -1808,6 +2056,7 @@ impl Database {
         let scheduled_emails = self.list_scheduled_emails()?;
         let starred_contacts = self.get_starred_contacts()?;
         let directory_contacts = self.list_directory_contacts()?;
+        let imap_folders = self.list_imap_folders()?;
 
         Ok(WorkspaceSnapshot {
             emails,
@@ -1822,6 +2071,7 @@ impl Database {
             scheduled_emails,
             starred_contacts,
             directory_contacts,
+            imap_folders,
             data_dir: self.data_dir.to_string_lossy().to_string(),
             portable_mode: self.portable_mode,
         })

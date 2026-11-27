@@ -8,7 +8,7 @@ export type AppRoute =
   | 'system-settings'
   | 'onboarding';
 
-export type MailFolder = 'inbox' | 'sent' | 'archive';
+export type MailFolder = 'inbox' | 'sent' | 'archive' | (string & {});
 
 export type InboxFilter = 'all' | 'unread' | 'starred' | 'attachment';
 
@@ -294,6 +294,21 @@ export interface CacheStats {
   portableMode: boolean;
 }
 
+export interface ImapFolderItem {
+  id: string;
+  accountId: string;
+  accountEmail: string;
+  rawName: string;
+  displayName: string;
+  folderKey: string;
+  delimiter: string;
+  kind: 'custom' | 'sent' | 'drafts' | 'junk' | 'trash' | 'archive' | string;
+  lastUid: number;
+  syncedAt?: string | null;
+  emailCount: number;
+  unreadCount: number;
+}
+
 export interface WorkspaceSnapshot {
   emails: EmailItem[];
   accounts: ConnectedAccount[];
@@ -307,6 +322,7 @@ export interface WorkspaceSnapshot {
   scheduledEmails: ScheduledEmailItem[];
   starredContacts: string[];
   directoryContacts?: DirectoryContact[];
+  imapFolders?: ImapFolderItem[];
   dataDir: string;
   portableMode: boolean;
 }

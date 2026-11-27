@@ -1,8 +1,9 @@
 use crate::carddav::{parse_csv_contacts, parse_vcards, sync_carddav_contacts_async};
 use crate::db::{format_bytes, sanitize_filename, Database};
 use crate::mail_protocol::{
-    load_older_emails_blocking, refetch_attachment_blocking, send_email_blocking,
-    sync_account_blocking, sync_flag_to_imap_blocking, test_connection_blocking,
+    load_older_emails_blocking, refetch_attachment_blocking, refresh_imap_folders_blocking,
+    send_email_blocking, sync_account_blocking, sync_flag_to_imap_blocking,
+    sync_imap_folder_blocking, test_connection_blocking,
 };
 use crate::models::*;
 use chrono::Local;
@@ -67,13 +68,50 @@ pub async fn sync_all_accounts(
 pub async fn load_older_emails(
     state: State<'_, AppState>,
     batch_size: Option<usize>,
+    folder_key: Option<String>,
 ) -> Result<LoadOlderResult, String> {
+    let limit = batch_size.unwrap_or(50).clamp(10, 100);
+    let target_key = folder_key
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "inbox".to_string());
+
+    if target_key != "inbox" {
+        let (acc_opt, folder_opt) = {
+            let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+            let folder = db.get_imap_folder(&target_key)?;
+            let acc = match &folder {
+                Some(f) => db.get_account_with_secret(Some(&f.account_id))?,
+                None => None,
+            };
+            (acc, folder)
+        };
+        let (Some(acc), Some(folder)) = (acc_opt, folder_opt) else {
+            return Ok(LoadOlderResult {
+                fetched_count: 0,
+                has_more: false,
+                errors: vec![],
+            });
+        };
+        let db_for_task = Arc::clone(&state.db);
+        let (fetched_count, has_more) = tokio::task::spawn_blocking(move || {
+            load_older_emails_blocking(&db_for_task, &acc, limit, &folder.folder_key, &folder.raw_name)
+        })
+        .await
+        .map_err(|e| format!("加载历史邮件任务中断: {}", e))??;
+
+        return Ok(LoadOlderResult {
+            fetched_count,
+            has_more,
+            errors: vec![],
+        });
+    }
+
     let accounts = {
         let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
         db.list_accounts_with_secrets()?
     };
 
-    let limit = batch_size.unwrap_or(50).clamp(10, 100);
     let db_for_task = Arc::clone(&state.db);
 
     let (fetched_count, has_more, errors) = tokio::task::spawn_blocking(move || {
@@ -85,7 +123,7 @@ pub async fn load_older_emails(
             if !acc.account.has_credentials {
                 continue;
             }
-            match load_older_emails_blocking(&db_for_task, &acc, limit) {
+            match load_older_emails_blocking(&db_for_task, &acc, limit, "inbox", "INBOX") {
                 Ok((cnt, more)) => {
                     total_fetched += cnt;
                     if more {
@@ -105,6 +143,51 @@ pub async fn load_older_emails(
         has_more,
         errors,
     })
+}
+
+#[tauri::command]
+pub async fn refresh_imap_folders(
+    state: State<'_, AppState>,
+) -> Result<Vec<ImapFolderItem>, String> {
+    let accounts = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        db.list_accounts_with_secrets()?
+    };
+    let db_for_task = Arc::clone(&state.db);
+
+    tokio::task::spawn_blocking(move || -> Result<Vec<ImapFolderItem>, String> {
+        for acc in accounts {
+            if !acc.account.has_credentials {
+                continue;
+            }
+            let _ = refresh_imap_folders_blocking(&db_for_task, &acc);
+        }
+        let db = db_for_task.lock().map_err(|_| "数据库锁异常".to_string())?;
+        db.list_imap_folders()
+    })
+    .await
+    .map_err(|e| format!("刷新文件夹列表任务中断: {}", e))?
+}
+
+#[tauri::command]
+pub async fn sync_imap_folder(
+    state: State<'_, AppState>,
+    folder_id: String,
+) -> Result<usize, String> {
+    let (acc, folder) = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        let folder = db
+            .get_imap_folder(&folder_id)?
+            .ok_or_else(|| "未找到对应的邮箱文件夹".to_string())?;
+        let acc = db
+            .get_account_with_secret(Some(&folder.account_id))?
+            .ok_or_else(|| "未找到该文件夹所属的邮箱账户".to_string())?;
+        (acc, folder)
+    };
+    let db_for_task = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || sync_imap_folder_blocking(&db_for_task, &acc, &folder))
+        .await
+        .map_err(|e| format!("同步文件夹任务中断: {}", e))?
 }
 
 pub async fn run_sync_all_internal(
@@ -243,15 +326,16 @@ pub async fn update_email_flags(
     let remote_info = {
         let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
         db.update_email_flags(&email_id, unread, starred, archived, tag)?;
-        if let Some((aid, uid)) = db.get_email_remote_ref(&email_id)? {
-            db.get_account_with_secret(Some(&aid))?.map(|acc| (acc, uid))
+        if let Some((aid, uid, mailbox)) = db.get_email_remote_ref(&email_id)? {
+            db.get_account_with_secret(Some(&aid))?
+                .map(|acc| (acc, uid, mailbox))
         } else {
             None
         }
     };
 
     // Best-effort sync flags back to remote IMAP server in background
-    if let Some((acc, uid)) = remote_info {
+    if let Some((acc, uid, mailbox)) = remote_info {
         let mut cmds = Vec::new();
         if let Some(u) = unread {
             cmds.push(if u { "-FLAGS (\\Seen)" } else { "+FLAGS (\\Seen)" });
@@ -262,7 +346,7 @@ pub async fn update_email_flags(
         if !cmds.is_empty() {
             tokio::task::spawn_blocking(move || {
                 for cmd in cmds {
-                    let _ = sync_flag_to_imap_blocking(&acc, uid, cmd);
+                    let _ = sync_flag_to_imap_blocking(&acc, &mailbox, uid, cmd);
                 }
             });
         }
@@ -274,8 +358,9 @@ pub async fn update_email_flags(
 pub async fn delete_email(state: State<'_, AppState>, email_id: String) -> Result<(), String> {
     let remote_info = {
         let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-        let info = if let Some((aid, uid)) = db.get_email_remote_ref(&email_id)? {
-            db.get_account_with_secret(Some(&aid))?.map(|acc| (acc, uid))
+        let info = if let Some((aid, uid, mailbox)) = db.get_email_remote_ref(&email_id)? {
+            db.get_account_with_secret(Some(&aid))?
+                .map(|acc| (acc, uid, mailbox))
         } else {
             None
         };
@@ -283,9 +368,9 @@ pub async fn delete_email(state: State<'_, AppState>, email_id: String) -> Resul
         info
     };
 
-    if let Some((acc, uid)) = remote_info {
+    if let Some((acc, uid, mailbox)) = remote_info {
         tokio::task::spawn_blocking(move || {
-            let _ = sync_flag_to_imap_blocking(&acc, uid, "+FLAGS (\\Deleted)");
+            let _ = sync_flag_to_imap_blocking(&acc, &mailbox, uid, "+FLAGS (\\Deleted)");
         });
     }
     Ok(())
@@ -358,9 +443,10 @@ pub async fn download_attachment(
                 } else {
                     // On-demand IMAP refetch if local cache was cleaned
                     let remote = db.get_email_remote_ref(&att_rec.email_id)?;
-                    if let Some((aid, uid)) = remote {
+                    if let Some((aid, uid, mailbox)) = remote {
                         if let Some(acc) = db.get_account_with_secret(Some(&aid))? {
-                            let refetched = refetch_attachment_blocking(&acc, uid, att_rec.part_index)?;
+                            let refetched =
+                                refetch_attachment_blocking(&acc, &mailbox, uid, att_rec.part_index)?;
                             if let Ok(rel) = db.write_attachment_to_cache(&att_rec.id, &att_rec.name, &refetched) {
                                 let _ = db.update_attachment_cache_path(&att_rec.id, &rel);
                             }

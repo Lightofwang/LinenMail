@@ -1,6 +1,6 @@
 use crate::db::{format_bytes, format_full_time, format_short_time, sanitize_filename, AccountSecretRecord, Database};
 use crate::models::*;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use base64::{engine::general_purpose::{STANDARD as B64, STANDARD_NO_PAD as B64_NO_PAD}, Engine};
 use chrono::Local;
 use imap::types::Flag;
 use lettre::message::{header::ContentType, Attachment, Mailbox, MultiPart, SinglePart};
@@ -130,6 +130,9 @@ pub fn sync_account_blocking(
         .login(&rec.account.email, &rec.auth_code)
         .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
 
+    // Discover all user-created & system IMAP folders on every sync
+    let _ = discover_imap_folders_in_session(&mut session, db_mutex, rec);
+
     session
         .select("INBOX")
         .map_err(|e| format!("打开收件箱失败: {}", e))?;
@@ -154,6 +157,7 @@ pub fn sync_account_blocking(
     }
 
     if uids.is_empty() {
+        let _ = repair_stored_replacement_emails(&mut session, db_mutex, rec);
         let now_str = Local::now().format("%H:%M:%S").to_string();
         if let Ok(db) = db_mutex.lock() {
             let _ = db.update_account_sync_cursor(&rec.account.id, rec.last_uid, &now_str);
@@ -169,8 +173,11 @@ pub fn sync_account_blocking(
         rec,
         &uids,
         rec.last_uid,
+        "inbox",
         !is_initial_sync,
     )?;
+
+    let _ = repair_stored_replacement_emails(&mut session, db_mutex, rec);
 
     let now_str = Local::now().format("%H:%M:%S").to_string();
     if let Ok(db) = db_mutex.lock() {
@@ -180,12 +187,241 @@ pub fn sync_account_blocking(
     Ok((fetched_count, notifications))
 }
 
+fn discover_imap_folders_in_session<T: std::io::Read + std::io::Write>(
+    session: &mut imap::Session<T>,
+    db_mutex: &Mutex<Database>,
+    rec: &AccountSecretRecord,
+) -> Result<Vec<ImapFolderItem>, String> {
+    let mailboxes = session
+        .list(Some(""), Some("*"))
+        .map_err(|e| format!("获取邮箱文件夹列表失败: {}", e))?;
+
+    let mut discovered: Vec<ImapFolderItem> = Vec::new();
+    for mbx in mailboxes.iter() {
+        if mbx
+            .attributes()
+            .iter()
+            .any(|a| matches!(a, imap::types::NameAttribute::NoSelect))
+        {
+            continue;
+        }
+        let raw_name = mbx.name().to_string();
+        if raw_name.trim().is_empty() || raw_name.eq_ignore_ascii_case("INBOX") {
+            continue;
+        }
+        let delimiter = mbx.delimiter().map(|d| d.to_string()).unwrap_or_else(|| "/".into());
+        let decoded = decode_imap_utf7(&raw_name);
+        let (kind, display_name) = classify_imap_folder(&raw_name, &decoded);
+
+        let folder_id = format!("{}:{}", rec.account.id, raw_name);
+        let folder_key = format!("imap:{}:{}", rec.account.id, raw_name);
+        discovered.push(ImapFolderItem {
+            id: folder_id,
+            account_id: rec.account.id.clone(),
+            account_email: rec.account.email.clone(),
+            raw_name,
+            display_name,
+            folder_key,
+            delimiter,
+            kind,
+            last_uid: 0,
+            synced_at: None,
+            email_count: 0,
+            unread_count: 0,
+        });
+    }
+
+    if let Ok(db) = db_mutex.lock() {
+        let _ = db.replace_account_imap_folders(&rec.account.id, &discovered);
+    }
+    Ok(discovered)
+}
+
+pub fn refresh_imap_folders_blocking(
+    db_mutex: &Mutex<Database>,
+    rec: &AccountSecretRecord,
+) -> Result<Vec<ImapFolderItem>, String> {
+    let host = rec.account.imap_host.as_deref().unwrap_or("").trim();
+    let port = rec.account.imap_port.unwrap_or(993);
+    if host.is_empty() || rec.auth_code.is_empty() {
+        return Ok(vec![]);
+    }
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|e| format!("TLS 初始化失败: {}", e))?;
+    let client = imap::connect((host, port), host, &tls)
+        .map_err(|e| format!("连接 {} 失败: {}", host, e))?;
+    let mut session = client
+        .login(&rec.account.email, &rec.auth_code)
+        .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
+
+    let res = discover_imap_folders_in_session(&mut session, db_mutex, rec);
+    let _ = session.logout();
+    res
+}
+
+/// Silently syncs one user-created or remote IMAP folder (latest 30 on first open, incremental afterwards).
+pub fn sync_imap_folder_blocking(
+    db_mutex: &Mutex<Database>,
+    rec: &AccountSecretRecord,
+    folder: &ImapFolderItem,
+) -> Result<usize, String> {
+    let host = rec.account.imap_host.as_deref().unwrap_or("").trim();
+    let port = rec.account.imap_port.unwrap_or(993);
+    if host.is_empty() || rec.auth_code.is_empty() {
+        return Ok(0);
+    }
+
+    let is_initial = folder.last_uid == 0;
+
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|e| format!("TLS 初始化失败: {}", e))?;
+    let client = imap::connect((host, port), host, &tls)
+        .map_err(|e| format!("连接 {} 失败: {}", host, e))?;
+    let mut session = client
+        .login(&rec.account.email, &rec.auth_code)
+        .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
+
+    session
+        .select(&folder.raw_name)
+        .map_err(|e| format!("打开文件夹「{}」失败: {}", folder.display_name, e))?;
+
+    let uid_query = if !is_initial {
+        format!("UID {}:*", folder.last_uid + 1)
+    } else {
+        "ALL".to_string()
+    };
+
+    let mut uids: Vec<u32> = session
+        .uid_search(&uid_query)
+        .map_err(|e| format!("检索文件夹邮件 UID 失败: {}", e))?
+        .into_iter()
+        .filter(|&u| u > folder.last_uid)
+        .collect();
+    uids.sort_unstable();
+
+    if is_initial && uids.len() > 30 {
+        uids = uids.split_off(uids.len() - 30);
+    }
+
+    let now_str = Local::now().format("%H:%M:%S").to_string();
+    if uids.is_empty() {
+        if let Ok(db) = db_mutex.lock() {
+            let _ = db.update_imap_folder_cursor(&folder.id, folder.last_uid, &now_str);
+        }
+        let _ = session.logout();
+        return Ok(0);
+    }
+
+    let (fetched_count, max_uid, _notifs) = fetch_and_store_uids(
+        &mut session,
+        db_mutex,
+        rec,
+        &uids,
+        folder.last_uid,
+        &folder.folder_key,
+        false,
+    )?;
+
+    if let Ok(db) = db_mutex.lock() {
+        let _ = db.update_imap_folder_cursor(&folder.id, max_uid, &now_str);
+    }
+    let _ = session.logout();
+    Ok(fetched_count)
+}
+
+/// Silently re-fetches previously synced emails that contain U+FFFD replacement chars
+/// (caused by CESU-8 surrogate-pair emojis from Chinese enterprise mailers) and updates them in place.
+fn repair_stored_replacement_emails<T: std::io::Read + std::io::Write>(
+    session: &mut imap::Session<T>,
+    db_mutex: &Mutex<Database>,
+    rec: &AccountSecretRecord,
+) -> usize {
+    let candidates = {
+        let Ok(db) = db_mutex.lock() else {
+            return 0;
+        };
+        db.list_unrepaired_replacement_emails(&rec.account.id)
+    };
+    if candidates.is_empty() {
+        return 0;
+    }
+
+    let uid_to_id: std::collections::HashMap<u32, String> = candidates
+        .iter()
+        .map(|(id, uid)| (*uid, id.clone()))
+        .collect();
+    let uid_set = candidates
+        .iter()
+        .map(|(_, u)| u.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let attempted_ids: Vec<String> = candidates.iter().map(|(id, _)| id.clone()).collect();
+
+    let mut repaired_count = 0usize;
+    if let Ok(fetches) = session.uid_fetch(&uid_set, "(UID BODY.PEEK[])") {
+        let parser = MessageParser::default();
+        for fetch in fetches.iter() {
+            let (Some(uid), Some(raw)) = (fetch.uid, fetch.body()) else {
+                continue;
+            };
+            let Some(email_id) = uid_to_id.get(&uid) else {
+                continue;
+            };
+            let repaired_raw = repair_raw_mime_cesu8(raw);
+            let Some(parsed) = parser.parse(&repaired_raw) else {
+                continue;
+            };
+
+            let subject = parsed
+                .subject()
+                .map(|s| decode_html_entities(s.trim()))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "（无主题）".into());
+            let plain_body = extract_clean_body_text(&parsed);
+            let mut paragraphs: Vec<String> = plain_body
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .map(|l| l.to_string())
+                .collect();
+            if paragraphs.is_empty() {
+                paragraphs.push("（此邮件暂无纯文本正文）".into());
+            }
+            let preview: String = paragraphs
+                .first()
+                .cloned()
+                .unwrap_or_default()
+                .chars()
+                .take(80)
+                .collect();
+
+            if let Ok(db) = db_mutex.lock() {
+                if db
+                    .update_email_repaired_content(email_id, &subject, &preview, &paragraphs)
+                    .is_ok()
+                {
+                    repaired_count += 1;
+                }
+            }
+        }
+    }
+
+    if let Ok(db) = db_mutex.lock() {
+        db.mark_replacement_emails_attempted(&attempted_ids);
+    }
+    repaired_count
+}
+
 /// Silently loads one batch of older historical emails strictly before the oldest
-/// locally synced UID for this account. Never triggers desktop notifications.
+/// locally synced UID for this account & folder. Never triggers desktop notifications.
 pub fn load_older_emails_blocking(
     db_mutex: &Mutex<Database>,
     rec: &AccountSecretRecord,
     batch_size: usize,
+    folder_key: &str,
+    mailbox_name: &str,
 ) -> Result<(usize, bool), String> {
     let host = rec.account.imap_host.as_deref().unwrap_or("").trim();
     let port = rec.account.imap_port.unwrap_or(993);
@@ -195,7 +431,7 @@ pub fn load_older_emails_blocking(
 
     let oldest_uid = {
         let db = db_mutex.lock().map_err(|_| "数据库锁异常".to_string())?;
-        db.get_oldest_remote_uid(&rec.account.id)
+        db.get_oldest_remote_uid(&rec.account.id, folder_key)
     };
 
     if oldest_uid == Some(1) {
@@ -212,8 +448,8 @@ pub fn load_older_emails_blocking(
         .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
 
     session
-        .select("INBOX")
-        .map_err(|e| format!("打开收件箱失败: {}", e))?;
+        .select(mailbox_name)
+        .map_err(|e| format!("打开文件夹失败: {}", e))?;
 
     let uid_query = match oldest_uid {
         Some(min_u) if min_u > 1 => format!("UID 1:{}", min_u - 1),
@@ -244,7 +480,7 @@ pub fn load_older_emails_blocking(
 
     // Always silent: collect_notifications = false
     let (fetched_count, _max_uid, _notifs) =
-        fetch_and_store_uids(&mut session, db_mutex, rec, &uids, rec.last_uid, false)?;
+        fetch_and_store_uids(&mut session, db_mutex, rec, &uids, rec.last_uid, folder_key, false)?;
 
     let _ = session.logout();
     Ok((fetched_count, has_more))
@@ -256,6 +492,7 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
     rec: &AccountSecretRecord,
     uids: &[u32],
     initial_max_uid: u32,
+    folder_key: &str,
     collect_notifications: bool,
 ) -> Result<(usize, u32, Vec<SyncedMailNotification>), String> {
     let uid_set = uids
@@ -284,7 +521,8 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
         let Some(raw) = fetch.body() else {
             continue;
         };
-        let Some(parsed) = parser.parse(raw) else {
+        let repaired_raw = repair_raw_mime_cesu8(raw);
+        let Some(parsed) = parser.parse(&repaired_raw) else {
             continue;
         };
 
@@ -390,13 +628,7 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
             .map(|d| d.to_timestamp() * 1000)
             .unwrap_or_else(|| Local::now().timestamp_millis());
 
-        let plain_body = if let Some(text) = parsed.body_text(0) {
-            decode_html_entities(&text)
-        } else if let Some(html) = parsed.body_html(0) {
-            strip_html_safely(&html)
-        } else {
-            String::new()
-        };
+        let plain_body = extract_clean_body_text(&parsed);
 
         let mut paragraphs: Vec<String> = plain_body
             .lines()
@@ -423,10 +655,14 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_else(|| "邮".into());
 
-        let email_id = format!("mail-imap-{}-{}", rec.account.id, uid);
+        let email_id = if folder_key == "inbox" {
+            format!("mail-imap-{}-{}", rec.account.id, uid)
+        } else {
+            format!("mail-imap-{}-{:x}-{}", rec.account.id, fnv1a_hash(folder_key), uid)
+        };
 
         let db = db_mutex.lock().map_err(|_| "数据库锁异常".to_string())?;
-        if db.has_email_by_uid_or_msgid(&rec.account.id, uid, msg_id.as_deref()) {
+        if db.has_email_by_uid_or_msgid(&rec.account.id, folder_key, uid, msg_id.as_deref()) {
             continue;
         }
 
@@ -480,7 +716,7 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
             unread: !is_seen,
             starred: is_flagged,
             archived: false,
-            folder: "inbox".into(),
+            folder: folder_key.to_string(),
             tag: infer_default_tag(&subject),
             attachment: first_att,
             attachments: att_list,
@@ -488,8 +724,8 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
             signoff: String::new(),
         };
 
-        // Run blocklist & filter rules before persisting
-        if db.evaluate_incoming_email(&mut mail) {
+        // Run blocklist & filter rules only for INBOX messages so custom folder emails stay in place
+        if folder_key == "inbox" && db.evaluate_incoming_email(&mut mail) {
             continue;
         }
 
@@ -510,6 +746,7 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
 
 pub fn sync_flag_to_imap_blocking(
     rec: &AccountSecretRecord,
+    mailbox_name: &str,
     remote_uid: u32,
     flag_cmd: &str,
 ) -> Result<(), String> {
@@ -523,7 +760,7 @@ pub fn sync_flag_to_imap_blocking(
     let mut session = client
         .login(&rec.account.email, &rec.auth_code)
         .map_err(|(e, _)| e.to_string())?;
-    session.select("INBOX").map_err(|e| e.to_string())?;
+    session.select(mailbox_name).map_err(|e| e.to_string())?;
     let _ = session.uid_store(remote_uid.to_string(), flag_cmd);
     let _ = session.logout();
     Ok(())
@@ -531,6 +768,7 @@ pub fn sync_flag_to_imap_blocking(
 
 pub fn refetch_attachment_blocking(
     rec: &AccountSecretRecord,
+    mailbox_name: &str,
     remote_uid: u32,
     part_index: usize,
 ) -> Result<Vec<u8>, String> {
@@ -544,7 +782,7 @@ pub fn refetch_attachment_blocking(
     let mut session = client
         .login(&rec.account.email, &rec.auth_code)
         .map_err(|(e, _)| format!("IMAP 认证失败: {}", e))?;
-    session.select("INBOX").map_err(|e| format!("打开收件箱失败: {}", e))?;
+    session.select(mailbox_name).map_err(|e| format!("打开文件夹失败: {}", e))?;
 
     let fetches = session
         .uid_fetch(remote_uid.to_string(), "BODY.PEEK[]")
@@ -782,6 +1020,451 @@ fn infer_default_tag(_subject: &str) -> String {
     String::new()
 }
 
+fn fnv1a_hash(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// Decodes RFC 3501 Modified UTF-7 mailbox names (e.g. `&XfJT0ZAB-` -> `已发送`, `&U9dP4TDN-` -> Chinese folder).
+pub fn decode_imap_utf7(input: &str) -> String {
+    if !input.contains('&') {
+        return input.to_string();
+    }
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(len);
+    let mut i = 0usize;
+
+    while i < len {
+        if bytes[i] == b'&' {
+            if i + 1 < len && bytes[i + 1] == b'-' {
+                out.push('&');
+                i += 2;
+                continue;
+            }
+            if let Some(dash_rel) = input[i + 1..].find('-') {
+                let b64_mod = &input[i + 1..i + 1 + dash_rel];
+                let standard_b64: String = b64_mod
+                    .chars()
+                    .map(|c| if c == ',' { '/' } else { c })
+                    .collect();
+                if let Ok(raw_bytes) = B64_NO_PAD.decode(standard_b64.as_bytes()) {
+                    let utf16_units: Vec<u16> = raw_bytes
+                        .chunks_exact(2)
+                        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                        .collect();
+                    let decoded: String = char::decode_utf16(utf16_units)
+                        .map(|r| r.unwrap_or('\u{FFFD}'))
+                        .collect();
+                    out.push_str(&decoded);
+                    i += 1 + dash_rel + 1;
+                    continue;
+                }
+            }
+        }
+        let ch = input[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn classify_imap_folder(raw_name: &str, decoded: &str) -> (String, String) {
+    let lower = decoded.trim().to_lowercase();
+    let raw_lower = raw_name.trim().to_lowercase();
+
+    if matches!(
+        lower.as_str(),
+        "sent" | "sent messages" | "sent items" | "sent mail" | "[gmail]/sent mail" | "已发送"
+    ) || raw_lower == "&xfjt0zab-"
+    {
+        return ("sent".into(), "已发送（服务器）".into());
+    }
+    if matches!(
+        lower.as_str(),
+        "drafts" | "draft" | "[gmail]/drafts" | "草稿箱" | "草稿"
+    ) {
+        return ("drafts".into(), "草稿箱（服务器）".into());
+    }
+    if matches!(
+        lower.as_str(),
+        "junk" | "spam" | "junk e-mail" | "junk email" | "[gmail]/spam" | "垃圾邮件" | "垃圾箱"
+    ) {
+        return ("junk".into(), "垃圾邮件".into());
+    }
+    if matches!(
+        lower.as_str(),
+        "trash" | "deleted messages" | "deleted items" | "[gmail]/trash" | "已删除" | "废纸篓"
+    ) {
+        return ("trash".into(), "已删除".into());
+    }
+    if matches!(
+        lower.as_str(),
+        "archive" | "all mail" | "[gmail]/all mail" | "归档"
+    ) {
+        return ("archive".into(), "归档（服务器）".into());
+    }
+
+    // User-created custom folder! Strip noisy QQ/Exmail root wrapper like "其他文件夹/" if present
+    let clean_display = decoded
+        .strip_prefix("其他文件夹/")
+        .or_else(|| decoded.strip_prefix("其他文件夹."))
+        .or_else(|| decoded.strip_prefix("INBOX/"))
+        .or_else(|| decoded.strip_prefix("INBOX."))
+        .unwrap_or(decoded)
+        .trim()
+        .to_string();
+
+    (
+        "custom".into(),
+        if clean_display.is_empty() {
+            decoded.to_string()
+        } else {
+            clean_display
+        },
+    )
+}
+
+/// Picks the cleanest body text between `text/plain` and `text/html`:
+/// if `text/plain` contains U+FFFD replacement chars while `text/html` has fewer, prefers `text/html`.
+fn extract_clean_body_text(parsed: &mail_parser::Message<'_>) -> String {
+    let text_opt = parsed.body_text(0).map(|t| decode_html_entities(&t));
+    let html_opt = parsed.body_html(0).map(|h| strip_html_safely(&h));
+
+    match (text_opt, html_opt) {
+        (Some(text), Some(html)) => {
+            let text_trimmed = text.trim();
+            let html_trimmed = html.trim();
+            if text_trimmed.is_empty() {
+                return html;
+            }
+            let text_bad = text.chars().filter(|&c| c == '\u{FFFD}').count();
+            if text_bad > 0 && !html_trimmed.is_empty() {
+                let html_bad = html.chars().filter(|&c| c == '\u{FFFD}').count();
+                if html_bad < text_bad {
+                    return html;
+                }
+            }
+            text
+        }
+        (Some(text), None) => text,
+        (None, Some(html)) => html,
+        (None, None) => String::new(),
+    }
+}
+
+/// Repairs CESU-8 / UTF-16 surrogate-pair UTF-8 sequences (e.g. `ED A0 BC ED BE 89` for 🎉)
+/// across raw 8-bit, Quoted-Printable, RFC 2047 Base64 headers, and Base64 `text/*` MIME parts.
+/// Common in Chinese enterprise mailers (Foxmail, WeCom/Exmail, QQ Mail) where astral emojis
+/// otherwise decode as 6x U+FFFD (``) under strict UTF-8.
+fn repair_raw_mime_cesu8(raw: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    let mut current = std::borrow::Cow::Borrowed(raw);
+
+    let (step1, c1) = repair_cesu8_bytes(current.as_ref());
+    if c1 {
+        current = std::borrow::Cow::Owned(step1);
+    }
+
+    let (step2, c2) = repair_qp_cesu8(current.as_ref());
+    if c2 {
+        current = std::borrow::Cow::Owned(step2);
+    }
+
+    let (step3, c3) = repair_rfc2047_base64_cesu8(current.as_ref());
+    if c3 {
+        current = std::borrow::Cow::Owned(step3);
+    }
+
+    let (step4, c4) = repair_base64_mime_parts_cesu8(current.as_ref());
+    if c4 {
+        current = std::borrow::Cow::Owned(step4);
+    }
+
+    current
+}
+
+fn decode_cesu8_pair(b: &[u8]) -> Option<char> {
+    if b.len() < 6 {
+        return None;
+    }
+    if b[0] == 0xED
+        && (0xA0..=0xAF).contains(&b[1])
+        && (0x80..=0xBF).contains(&b[2])
+        && b[3] == 0xED
+        && (0xB0..=0xBF).contains(&b[4])
+        && (0x80..=0xBF).contains(&b[5])
+    {
+        let high = ((b[0] as u32 & 0x0F) << 12)
+            | ((b[1] as u32 & 0x3F) << 6)
+            | (b[2] as u32 & 0x3F);
+        let low = ((b[3] as u32 & 0x0F) << 12)
+            | ((b[4] as u32 & 0x3F) << 6)
+            | (b[5] as u32 & 0x3F);
+        let cp = 0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00);
+        return char::from_u32(cp);
+    }
+    None
+}
+
+fn repair_cesu8_bytes(input: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::new();
+    let mut changed = false;
+    let mut i = 0usize;
+    let len = input.len();
+
+    while i < len {
+        if input[i] == 0xED && i + 5 < len {
+            if let Some(ch) = decode_cesu8_pair(&input[i..i + 6]) {
+                if !changed {
+                    out.reserve(len);
+                    out.extend_from_slice(&input[..i]);
+                    changed = true;
+                }
+                let mut buf = [0u8; 4];
+                out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+                i += 6;
+                continue;
+            }
+        }
+        if changed {
+            out.push(input[i]);
+        }
+        i += 1;
+    }
+    (out, changed)
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Reads 6 Quoted-Printable `=XX` bytes (skipping soft line breaks `=\r\n` / `=\n`) starting at `start`.
+fn read_six_qp_bytes(input: &[u8], start: usize) -> Option<([u8; 6], usize)> {
+    let mut bytes = [0u8; 6];
+    let mut idx = start;
+    let len = input.len();
+    for slot in &mut bytes {
+        loop {
+            if idx + 1 < len && input[idx] == b'=' && input[idx + 1] == b'\n' {
+                idx += 2;
+                continue;
+            }
+            if idx + 2 < len && input[idx] == b'=' && input[idx + 1] == b'\r' && input[idx + 2] == b'\n' {
+                idx += 3;
+                continue;
+            }
+            break;
+        }
+        if idx + 2 >= len || input[idx] != b'=' {
+            return None;
+        }
+        let hi = hex_nibble(input[idx + 1])?;
+        let lo = hex_nibble(input[idx + 2])?;
+        *slot = (hi << 4) | lo;
+        idx += 3;
+    }
+    Some((bytes, idx))
+}
+
+fn repair_qp_cesu8(input: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::new();
+    let mut changed = false;
+    let mut i = 0usize;
+    let len = input.len();
+
+    while i < len {
+        if input[i] == b'=' && i + 2 < len {
+            if let (Some(h), Some(l)) = (hex_nibble(input[i + 1]), hex_nibble(input[i + 2])) {
+                if ((h << 4) | l) == 0xED {
+                    if let Some((six, next_idx)) = read_six_qp_bytes(input, i) {
+                        if let Some(ch) = decode_cesu8_pair(&six) {
+                            if !changed {
+                                out.reserve(len);
+                                out.extend_from_slice(&input[..i]);
+                                changed = true;
+                            }
+                            let mut buf = [0u8; 4];
+                            for &b in ch.encode_utf8(&mut buf).as_bytes() {
+                                out.extend_from_slice(format!("={:02X}", b).as_bytes());
+                            }
+                            i = next_idx;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        if changed {
+            out.push(input[i]);
+        }
+        i += 1;
+    }
+    (out, changed)
+}
+
+fn repair_rfc2047_base64_cesu8(input: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::new();
+    let mut changed = false;
+    let mut i = 0usize;
+    let len = input.len();
+
+    while i + 8 < len {
+        if input[i] == b'=' && input[i + 1] == b'?' {
+            // Find charset?B?payload?= within 512 bytes
+            let search_end = (i + 512).min(len);
+            let slice = &input[i..search_end];
+            if let Some(end_rel) = slice.windows(2).position(|w| w == b"?=").filter(|&p| p > 6) {
+                let token = &slice[2..end_rel];
+                let mut q_positions = token.iter().enumerate().filter_map(|(p, &b)| if b == b'?' { Some(p) } else { None });
+                if let (Some(q1), Some(q2)) = (q_positions.next(), q_positions.next()) {
+                    let charset = String::from_utf8_lossy(&token[..q1]).to_lowercase();
+                    let enc = &token[q1 + 1..q2];
+                    if (charset == "utf-8" || charset == "utf8") && enc.len() == 1 && (enc[0] == b'B' || enc[0] == b'b') {
+                        let b64_payload = &token[q2 + 1..];
+                        if let Ok(decoded) = B64.decode(b64_payload) {
+                            let (fixed, was_fixed) = repair_cesu8_bytes(&decoded);
+                            if was_fixed {
+                                if !changed {
+                                    out.reserve(len);
+                                    out.extend_from_slice(&input[..i]);
+                                    changed = true;
+                                }
+                                out.extend_from_slice(&slice[..2 + q2 + 1]);
+                                out.extend_from_slice(B64.encode(&fixed).as_bytes());
+                                out.extend_from_slice(b"?=");
+                                i += end_rel + 2;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if changed {
+            out.push(input[i]);
+        }
+        i += 1;
+    }
+
+    if changed && i < len {
+        out.extend_from_slice(&input[i..]);
+    }
+    (out, changed)
+}
+
+fn repair_base64_mime_parts_cesu8(input: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::with_capacity(input.len());
+    let mut any_changed = false;
+
+    let mut in_headers = true;
+    let mut is_base64 = false;
+    let mut saw_content_type = false;
+    let mut is_text = false;
+    let mut b64_buf: Vec<u8> = Vec::new();
+
+    let flush_b64_buf = |buf: &mut Vec<u8>, out: &mut Vec<u8>, any_changed: &mut bool| {
+        if buf.is_empty() {
+            return;
+        }
+        let compact: Vec<u8> = buf
+            .iter()
+            .copied()
+            .filter(|b| !b.is_ascii_whitespace())
+            .collect();
+        let decoded_opt = B64.decode(&compact).ok().or_else(|| {
+            let trimmed: Vec<u8> = compact.iter().copied().filter(|&b| b != b'=').collect();
+            B64_NO_PAD.decode(&trimmed).ok()
+        });
+        if let Some(decoded) = decoded_opt {
+            let (fixed, was_fixed) = repair_cesu8_bytes(&decoded);
+            if was_fixed {
+                let reencoded = B64.encode(&fixed);
+                for chunk in reencoded.as_bytes().chunks(76) {
+                    out.extend_from_slice(chunk);
+                    out.extend_from_slice(b"\r\n");
+                }
+                *any_changed = true;
+                buf.clear();
+                return;
+            }
+        }
+        out.extend_from_slice(buf);
+        buf.clear();
+    };
+
+    let mut pos = 0usize;
+    let len = input.len();
+
+    while pos < len {
+        let nl_rel = input[pos..].iter().position(|&b| b == b'\n');
+        let line_end = match nl_rel {
+            Some(r) => pos + r + 1,
+            None => len,
+        };
+        let line = &input[pos..line_end];
+        pos = line_end;
+
+        let trimmed_line = strip_crlf(line);
+
+        if trimmed_line.starts_with(b"--") && trimmed_line.len() >= 4 {
+            flush_b64_buf(&mut b64_buf, &mut out, &mut any_changed);
+            out.extend_from_slice(line);
+            in_headers = true;
+            is_base64 = false;
+            saw_content_type = false;
+            is_text = false;
+            continue;
+        }
+
+        if in_headers {
+            out.extend_from_slice(line);
+            if trimmed_line.is_empty() {
+                in_headers = false;
+                if !saw_content_type {
+                    is_text = true;
+                }
+            } else {
+                let lower = String::from_utf8_lossy(trimmed_line).to_lowercase();
+                if lower.starts_with("content-transfer-encoding:") && lower.contains("base64") {
+                    is_base64 = true;
+                } else if lower.starts_with("content-type:") {
+                    saw_content_type = true;
+                    if lower.contains("text/") {
+                        is_text = true;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if is_base64 && is_text {
+            b64_buf.extend_from_slice(line);
+        } else {
+            out.extend_from_slice(line);
+        }
+    }
+
+    flush_b64_buf(&mut b64_buf, &mut out, &mut any_changed);
+    (out, any_changed)
+}
+
+fn strip_crlf(line: &[u8]) -> &[u8] {
+    let mut end = line.len();
+    while end > 0 && (line[end - 1] == b'\r' || line[end - 1] == b'\n') {
+        end -= 1;
+    }
+    &line[..end]
+}
+
 /// Safe, zero-dependency HTML-to-plain-text extractor so untrusted HTML emails
 /// are never injected into the DOM as raw HTML.
 fn strip_html_safely(html: &str) -> String {
@@ -798,11 +1481,16 @@ fn strip_html_safely(html: &str) -> String {
         }
         if ch == '>' {
             in_tag = false;
-            let lower = tag_buf.trim().to_lowercase();
+            let trimmed = tag_buf.trim();
+            let lower = trimmed.to_lowercase();
             if lower.starts_with("script") || lower.starts_with("style") {
                 in_skip_block = true;
             } else if lower.starts_with("/script") || lower.starts_with("/style") {
                 in_skip_block = false;
+            } else if !in_skip_block && lower.starts_with("img") {
+                if let Some(alt_text) = extract_img_emoji_alt(trimmed) {
+                    out.push_str(&alt_text);
+                }
             } else if lower.starts_with("br")
                 || lower.starts_with("/p")
                 || lower.starts_with("/div")
@@ -815,7 +1503,7 @@ fn strip_html_safely(html: &str) -> String {
             continue;
         }
         if in_tag {
-            if tag_buf.len() < 32 {
+            if tag_buf.len() < 256 {
                 tag_buf.push(ch);
             }
         } else if !in_skip_block {
@@ -826,38 +1514,137 @@ fn strip_html_safely(html: &str) -> String {
     decode_html_entities(&out)
 }
 
+/// Preserves short emoji/expression alt text on inline `<img>` tags (e.g. WeCom/QQ emoji images).
+fn extract_img_emoji_alt(tag_inner: &str) -> Option<String> {
+    let alt_pos = tag_inner
+        .as_bytes()
+        .windows(4)
+        .position(|w| w.eq_ignore_ascii_case(b"alt="))?;
+    let rest = &tag_inner[alt_pos + 4..];
+    let (quote, after_q) = if let Some(s) = rest.strip_prefix('"') {
+        ('"', s)
+    } else if let Some(s) = rest.strip_prefix('\'') {
+        ('\'', s)
+    } else {
+        return None;
+    };
+    let end = after_q.find(quote)?;
+    let val = decode_html_entities(after_q[..end].trim());
+    let char_len = val.chars().count();
+    if char_len == 0 || char_len > 10 {
+        return None;
+    }
+    let val_lower = val.to_lowercase();
+    if val_lower.contains(".png")
+        || val_lower.contains(".jpg")
+        || val_lower.contains(".gif")
+        || val_lower == "image"
+        || val_lower == "img"
+        || val_lower == "logo"
+    {
+        return None;
+    }
+    let has_emoji = val.chars().any(|c| (c as u32) >= 0x2600);
+    let is_bracket_expr = val.starts_with('[') && val.ends_with(']');
+    if has_emoji || is_bracket_expr {
+        Some(val)
+    } else {
+        None
+    }
+}
+
 pub fn decode_html_entities(input: &str) -> String {
     let mut cur = input.replace('\u{00a0}', " ");
     for _ in 0..3 {
         if !cur.contains('&') {
             break;
         }
-        let next = cur
+        let named = cur
             .replace("&amp;", "&")
             .replace("&AMP;", "&")
             .replace("&nbsp;", " ")
             .replace("&NBSP;", " ")
             .replace("&Nbsp;", " ")
-            .replace("&#160;", " ")
-            .replace("&#xA0;", " ")
-            .replace("&#xa0;", " ")
-            .replace("&#x00A0;", " ")
-            .replace("&#x00a0;", " ")
             .replace("&ensp;", " ")
             .replace("&emsp;", " ")
             .replace("&thinsp;", " ")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
-            .replace("&#39;", "'")
             .replace("&apos;", "'")
             .replace("&mdash;", "—")
             .replace("&ndash;", "–")
             .replace("&hellip;", "…");
+        let next = decode_numeric_html_entities(&named);
         if next == cur {
             break;
         }
         cur = next;
     }
     cur
+}
+
+/// Decodes decimal (`&#127881;`) and hex (`&#x1F389;`) numeric HTML entities,
+/// including combining UTF-16 surrogate pairs (`&#55356;&#57225;` / `&#xD83C;&#xDF89;`) into emoji.
+fn decode_numeric_html_entities(input: &str) -> String {
+    if !input.contains("&#") {
+        return input.to_string();
+    }
+    let mut out = String::with_capacity(input.len());
+    let mut pending_high_surrogate: Option<u32> = None;
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut i = 0usize;
+
+    while i < len {
+        if bytes[i] == b'&' && i + 2 < len && bytes[i + 1] == b'#' {
+            if let Some(semi_rel) = input[i + 2..].find(';') {
+                if semi_rel >= 1 && semi_rel <= 10 {
+                    let body = &input[i + 2..i + 2 + semi_rel];
+                    let parsed_code = if let Some(hex) = body.strip_prefix('x').or_else(|| body.strip_prefix('X')) {
+                        u32::from_str_radix(hex, 16).ok()
+                    } else {
+                        body.parse::<u32>().ok()
+                    };
+
+                    if let Some(code) = parsed_code {
+                        if (0xD800..=0xDBFF).contains(&code) {
+                            pending_high_surrogate = Some(code);
+                            i += 2 + semi_rel + 1;
+                            continue;
+                        }
+                        if (0xDC00..=0xDFFF).contains(&code) {
+                            if let Some(high) = pending_high_surrogate.take() {
+                                let cp = 0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00);
+                                if let Some(ch) = char::from_u32(cp) {
+                                    out.push(ch);
+                                    i += 2 + semi_rel + 1;
+                                    continue;
+                                }
+                            }
+                        } else {
+                            pending_high_surrogate = None;
+                            if code == 0xA0 {
+                                out.push(' ');
+                                i += 2 + semi_rel + 1;
+                                continue;
+                            }
+                            if code >= 0x20 {
+                                if let Some(ch) = char::from_u32(code) {
+                                    out.push(ch);
+                                    i += 2 + semi_rel + 1;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        pending_high_surrogate = None;
+        let ch = input[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
 }

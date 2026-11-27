@@ -204,6 +204,8 @@ pub fn run() {
             commands::get_carddav_config,
             commands::sync_carddav_contacts,
             commands::import_contacts_file,
+            commands::refresh_imap_folders,
+            commands::sync_imap_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LinenMail desktop application");

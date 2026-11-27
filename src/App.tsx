@@ -28,6 +28,7 @@ import {
   EmailAttachment,
   EmailItem,
   FilterRuleItem,
+  ImapFolderItem,
   LabelItem,
   LlmProfile,
   MailFolder,
@@ -163,11 +164,14 @@ export default function App() {
     initial.scheduledEmails || []
   );
 
+  const [imapFolders, setImapFolders] = useState<ImapFolderItem[]>([]);
+  const [refreshingFolders, setRefreshingFolders] = useState<boolean>(false);
+  const [syncingFolder, setSyncingFolder] = useState<boolean>(false);
   const [dataDir, setDataDir] = useState<string>('');
   const [portableMode, setPortableMode] = useState<boolean>(false);
   const [syncing, setSyncing] = useState<boolean>(false);
   const [loadingOlder, setLoadingOlder] = useState<boolean>(false);
-  const [hasMoreOlder, setHasMoreOlder] = useState<boolean>(mailService.isDesktop());
+  const [hasMoreOlderByFolder, setHasMoreOlderByFolder] = useState<Record<string, boolean>>({});
   const [lastSyncText, setLastSyncText] = useState<string>('刚刚');
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -193,6 +197,7 @@ export default function App() {
     setScheduledEmails(snap.scheduledEmails);
     setStarredContacts(snap.starredContacts);
     setDirectoryContacts(snap.directoryContacts || []);
+    setImapFolders(snap.imapFolders || []);
     setDataDir(snap.dataDir);
     setPortableMode(snap.portableMode);
     if (snap.emails.length > 0) {
@@ -395,12 +400,21 @@ export default function App() {
     }
   }, [syncing, refreshFromSqlite]);
 
+  const activeImapFolder = useMemo(
+    () =>
+      activeFolder.startsWith('imap:')
+        ? imapFolders.find((f) => f.folderKey === activeFolder) || null
+        : null,
+    [activeFolder, imapFolders]
+  );
+
   const handleLoadOlderEmails = useCallback(async () => {
-    if (loadingOlder || syncing) return;
+    if (loadingOlder || syncing || syncingFolder) return;
+    const targetFolder = activeFolder;
     setLoadingOlder(true);
     try {
-      const res = await mailService.loadOlderEmails(50);
-      setHasMoreOlder(res.hasMore);
+      const res = await mailService.loadOlderEmails(50, targetFolder);
+      setHasMoreOlderByFolder((prev) => ({ ...prev, [targetFolder]: res.hasMore }));
       if (mailService.isDesktop()) {
         await refreshFromSqlite();
       }
@@ -418,7 +432,50 @@ export default function App() {
     } finally {
       setLoadingOlder(false);
     }
-  }, [loadingOlder, syncing, refreshFromSqlite]);
+  }, [loadingOlder, syncing, syncingFolder, activeFolder, refreshFromSqlite]);
+
+  const handleRefreshImapFolders = useCallback(async () => {
+    if (refreshingFolders) return;
+    setRefreshingFolders(true);
+    try {
+      const folders = await mailService.refreshImapFolders();
+      if (mailService.isDesktop()) {
+        setImapFolders(folders);
+        setSyncNotice(`已刷新 ${folders.length} 个邮箱文件夹`);
+        setTimeout(() => setSyncNotice(null), 3500);
+      }
+    } catch (e) {
+      setSyncNotice(`刷新文件夹失败：${String(e)}`);
+      setTimeout(() => setSyncNotice(null), 4500);
+    } finally {
+      setRefreshingFolders(false);
+    }
+  }, [refreshingFolders]);
+
+  const handleSyncImapFolder = useCallback(
+    async (folder: ImapFolderItem) => {
+      if (syncingFolder) return;
+      setSyncingFolder(true);
+      try {
+        const fetched = await mailService.syncImapFolder(folder.id);
+        if (mailService.isDesktop()) {
+          await refreshFromSqlite();
+        }
+        setSyncNotice(
+          fetched > 0
+            ? `「${folder.displayName}」已静默同步 ${fetched} 封邮件`
+            : `「${folder.displayName}」已是最新`
+        );
+        setTimeout(() => setSyncNotice(null), 3500);
+      } catch (e) {
+        setSyncNotice(`同步「${folder.displayName}」失败：${String(e)}`);
+        setTimeout(() => setSyncNotice(null), 4500);
+      } finally {
+        setSyncingFolder(false);
+      }
+    },
+    [syncingFolder, refreshFromSqlite]
+  );
 
   const handleSelectFolder = (folder: MailFolder) => {
     setActiveFolder(folder);
@@ -429,10 +486,20 @@ export default function App() {
         ? e.folder === 'inbox' && !e.archived
         : folder === 'sent'
         ? e.folder === 'sent' && !e.archived
-        : e.folder === 'archive' || !!e.archived
+        : folder === 'archive'
+        ? e.folder === 'archive' || !!e.archived
+        : e.folder === folder && !e.archived
     );
     if (firstInFolder) {
       setActiveEmailId(firstInFolder.id);
+    }
+  };
+
+  const handleSelectImapFolder = (folder: ImapFolderItem) => {
+    setTagFilter(null);
+    handleSelectFolder(folder.folderKey);
+    if (mailService.isDesktop() && !folder.syncedAt && folder.emailCount === 0) {
+      void handleSyncImapFolder(folder);
     }
   };
 
@@ -821,6 +888,8 @@ export default function App() {
         activeFolder={activeFolder}
         unreadCount={inboxUnreadCount}
         draftCount={drafts.length}
+        imapFolders={imapFolders}
+        refreshingFolders={refreshingFolders}
         searchQuery={searchQuery}
         searchPlaceholder={searchPlaceholder}
         userInitial={profile.initial}
@@ -829,10 +898,12 @@ export default function App() {
         syncing={syncing}
         lastSyncText={lastSyncText}
         onSyncNow={() => void handleSyncNow()}
+        onRefreshFolders={() => void handleRefreshImapFolders()}
         onSelectFolder={(folder) => {
           setTagFilter(null);
           handleSelectFolder(folder);
         }}
+        onSelectImapFolder={handleSelectImapFolder}
         onNavigate={(route) => {
           setSearchQuery('');
           setActiveRoute(route);
@@ -846,6 +917,7 @@ export default function App() {
           emails={emails}
           labels={computedLabels}
           activeFolder={activeFolder}
+          activeImapFolder={activeImapFolder}
           activeEmailId={activeEmailId}
           searchQuery={searchQuery}
           tagFilter={tagFilter}
@@ -856,11 +928,18 @@ export default function App() {
           userName={profile.name}
           userEmail={defaultAccount?.email || profile.primaryEmail}
           syncing={syncing}
+          syncingFolder={syncingFolder}
           loadingOlder={loadingOlder}
-          hasMoreOlder={hasMoreOlder && accounts.some((a) => a.hasCredentials)}
+          hasMoreOlder={
+            (hasMoreOlderByFolder[activeFolder] ?? mailService.isDesktop()) &&
+            accounts.some((a) => a.hasCredentials)
+          }
           lastSyncText={lastSyncText}
           syncNotice={syncNotice}
           onSyncNow={() => void handleSyncNow()}
+          onSyncActiveFolder={
+            activeImapFolder ? () => void handleSyncImapFolder(activeImapFolder) : undefined
+          }
           onLoadOlderEmails={() => void handleLoadOlderEmails()}
           onDownloadAttachment={handleDownloadAttachment}
           onSelectEmail={handleSelectEmail}

@@ -14,6 +14,7 @@ import {
   EmailAttachment,
   EmailItem,
   FilterRuleItem,
+  ImapFolderItem,
   LlmProfile,
   LoadOlderResult,
   ScheduledEmailItem,
@@ -504,15 +505,32 @@ export const mailService = {
     };
   },
 
-  async loadOlderEmails(batchSize = 50): Promise<LoadOlderResult> {
+  async loadOlderEmails(batchSize = 50, folderKey?: string): Promise<LoadOlderResult> {
     if (isTauriRuntime()) {
-      return invoke<LoadOlderResult>('load_older_emails', { batchSize });
+      return invoke<LoadOlderResult>('load_older_emails', {
+        batchSize,
+        folderKey: folderKey && folderKey !== 'inbox' ? folderKey : null,
+      });
     }
     return {
       fetchedCount: 0,
       hasMore: false,
       errors: [],
     };
+  },
+
+  async refreshImapFolders(): Promise<ImapFolderItem[]> {
+    if (isTauriRuntime()) {
+      return invoke<ImapFolderItem[]>('refresh_imap_folders');
+    }
+    return [];
+  },
+
+  async syncImapFolder(folderId: string): Promise<number> {
+    if (isTauriRuntime()) {
+      return invoke<number>('sync_imap_folder', { folderId });
+    }
+    return 0;
   },
 
   async sendEmail(payload: SendEmailPayload): Promise<EmailItem | null> {

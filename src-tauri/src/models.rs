@@ -344,6 +344,23 @@ pub struct ContactSyncResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImapFolderItem {
+    pub id: String,
+    pub account_id: String,
+    pub account_email: String,
+    pub raw_name: String,
+    pub display_name: String,
+    pub folder_key: String,
+    pub delimiter: String,
+    pub kind: String,
+    pub last_uid: u32,
+    pub synced_at: Option<String>,
+    pub email_count: i64,
+    pub unread_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
     pub emails: Vec<EmailItem>,
     pub accounts: Vec<ConnectedAccount>,
@@ -357,6 +374,7 @@ pub struct WorkspaceSnapshot {
     pub scheduled_emails: Vec<ScheduledEmailItem>,
     pub starred_contacts: Vec<String>,
     pub directory_contacts: Vec<DirectoryContact>,
+    pub imap_folders: Vec<ImapFolderItem>,
     pub data_dir: String,
     pub portable_mode: bool,
 }

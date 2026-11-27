@@ -5,6 +5,7 @@ import {
   ComposePrefill,
   EmailAttachment,
   EmailItem,
+  ImapFolderItem,
   InboxFilter,
   LabelItem,
   LlmProfile,
@@ -17,6 +18,7 @@ interface MainInboxViewProps {
   emails: EmailItem[];
   labels: LabelItem[];
   activeFolder: MailFolder;
+  activeImapFolder?: ImapFolderItem | null;
   activeEmailId: string;
   searchQuery: string;
   tagFilter: string | null;
@@ -27,11 +29,13 @@ interface MainInboxViewProps {
   userName: string;
   userEmail: string;
   syncing?: boolean;
+  syncingFolder?: boolean;
   loadingOlder?: boolean;
   hasMoreOlder?: boolean;
   lastSyncText?: string;
   syncNotice?: string | null;
   onSyncNow?: () => void;
+  onSyncActiveFolder?: () => void;
   onLoadOlderEmails?: () => void;
   onDownloadAttachment: (email: EmailItem, att: EmailAttachment) => Promise<string>;
   onSelectEmail: (id: string) => void;
@@ -45,7 +49,7 @@ interface MainInboxViewProps {
   onForwardEmail: (prefill: ComposePrefill) => void;
 }
 
-const FOLDER_TITLES: Record<MailFolder, string> = {
+const FOLDER_TITLES: Record<string, string> = {
   inbox: '收件箱',
   sent: '已发送',
   archive: '归档',
@@ -57,6 +61,7 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   emails,
   labels,
   activeFolder,
+  activeImapFolder = null,
   activeEmailId,
   searchQuery,
   tagFilter,
@@ -66,11 +71,13 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   userName,
   userEmail,
   syncing = false,
+  syncingFolder = false,
   loadingOlder = false,
   hasMoreOlder = false,
   lastSyncText = '刚刚',
   syncNotice,
   onSyncNow,
+  onSyncActiveFolder,
   onLoadOlderEmails,
   onDownloadAttachment,
   onSelectEmail,
@@ -107,9 +114,13 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
     return emails.filter((e) => {
       if (activeFolder === 'inbox') return e.folder === 'inbox' && !e.archived;
       if (activeFolder === 'sent') return e.folder === 'sent' && !e.archived;
-      return e.folder === 'archive' || !!e.archived;
+      if (activeFolder === 'archive') return e.folder === 'archive' || !!e.archived;
+      return e.folder === activeFolder && !e.archived;
     });
   }, [emails, activeFolder]);
+
+  const currentFolderTitle =
+    activeImapFolder?.displayName || FOLDER_TITLES[activeFolder] || '文件夹';
 
   const filteredEmails = useMemo(() => {
     return folderEmails.filter((item) => {
@@ -270,15 +281,18 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
         {/* Triage Title & Filter Chips */}
         <div className="shrink-0 flex flex-col gap-3 px-1">
           <div className="flex items-center justify-between gap-gutter-sm">
-            <div className="flex items-center gap-gutter-sm">
-              <h1 className="font-headline text-headline-lg text-light-on-surface">
-                {FOLDER_TITLES[activeFolder]}
+            <div className="flex items-center gap-gutter-sm min-w-0">
+              <h1
+                title={activeImapFolder ? `${activeImapFolder.displayName} (${activeImapFolder.accountEmail})` : undefined}
+                className="font-headline text-headline-lg text-light-on-surface truncate"
+              >
+                {currentFolderTitle}
               </h1>
               {tagFilter && (
                 <button
                   type="button"
                   onClick={onClearTagFilter}
-                  className="inline-flex items-center gap-gutter-xs px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container font-label text-label-sm hover:opacity-90 cursor-pointer"
+                  className="inline-flex items-center gap-gutter-xs px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container font-label text-label-sm hover:opacity-90 cursor-pointer shrink-0"
                 >
                   <span>标签：{tagFilter}</span>
                   <span className="material-symbols-outlined text-body-sm" aria-hidden="true">
@@ -287,9 +301,30 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
                 </button>
               )}
             </div>
-            <span className="font-label text-label-md text-light-on-surface-variant tabular-nums">
-              共 {folderEmails.length} 封 · {unreadCount} 封未读
-            </span>
+            <div className="flex items-center gap-gutter-sm shrink-0">
+              {activeImapFolder && onSyncActiveFolder && (
+                <button
+                  type="button"
+                  disabled={syncingFolder || syncing}
+                  onClick={onSyncActiveFolder}
+                  title="静默同步此文件夹的最新邮件"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-light-surface-container-low hover:bg-light-surface-container text-light-on-surface-variant hover:text-light-on-surface font-label text-label-sm transition-colors cursor-pointer disabled:opacity-60"
+                >
+                  <span
+                    className={`material-symbols-outlined text-body-md ${
+                      syncingFolder ? 'animate-spin' : ''
+                    }`}
+                    aria-hidden="true"
+                  >
+                    sync
+                  </span>
+                  <span>{syncingFolder ? '同步中' : '同步'}</span>
+                </button>
+              )}
+              <span className="font-label text-label-md text-light-on-surface-variant tabular-nums">
+                共 {folderEmails.length} 封 · {unreadCount} 封未读
+              </span>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-gutter-sm" role="group" aria-label="邮件筛选">
@@ -330,14 +365,37 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
           {filteredEmails.length === 0 ? (
             <li className="py-section px-gutter-lg text-center rounded-lg bg-light-surface-container-low/60 flex flex-col items-center gap-gutter-sm">
               <span
-                className="material-symbols-outlined text-display-lg text-light-on-surface-variant"
+                className={`material-symbols-outlined text-display-lg text-light-on-surface-variant ${
+                  syncingFolder ? 'animate-spin' : ''
+                }`}
                 aria-hidden="true"
               >
-                done_all
+                {syncingFolder ? 'sync' : activeImapFolder ? 'folder_open' : 'done_all'}
               </span>
               <p className="font-body text-body-md text-light-on-surface-variant">
-                当前筛选下暂无邮件，享受片刻宁静
+                {syncingFolder
+                  ? `正在静默同步「${currentFolderTitle}」中的邮件...`
+                  : activeImapFolder && currentFilter === 'all' && !searchQuery.trim() && !tagFilter
+                  ? '该文件夹暂无已同步邮件'
+                  : '当前筛选下暂无邮件，享受片刻宁静'}
               </p>
+              {activeImapFolder &&
+                !syncingFolder &&
+                currentFilter === 'all' &&
+                !searchQuery.trim() &&
+                !tagFilter &&
+                onSyncActiveFolder && (
+                  <button
+                    type="button"
+                    onClick={onSyncActiveFolder}
+                    className="mt-1 inline-flex items-center gap-1.5 px-gutter-md py-gutter-xs rounded-full bg-light-primary text-light-on-primary font-label text-label-md hover:bg-light-primary-container transition-colors cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                      sync
+                    </span>
+                    <span>立即同步此文件夹</span>
+                  </button>
+                )}
             </li>
           ) : (
             filteredEmails.map((item) => {
@@ -455,32 +513,36 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
           )}
 
           {/* Silent Batch Load Older Emails Footer */}
-          {activeFolder === 'inbox' && !searchQuery.trim() && !tagFilter && folderEmails.length > 0 && onLoadOlderEmails && (
-            <li className="pt-2 pb-1 flex justify-center">
-              {hasMoreOlder ? (
-                <button
-                  type="button"
-                  disabled={loadingOlder || syncing}
-                  onClick={onLoadOlderEmails}
-                  className="w-full inline-flex items-center justify-center gap-gutter-xs px-gutter-md py-2.5 rounded-lg bg-light-surface-container-low/80 hover:bg-light-surface-container text-light-on-surface-variant hover:text-light-on-surface font-label text-label-md transition-colors duration-state-change cursor-pointer disabled:opacity-60"
-                >
-                  <span
-                    className={`material-symbols-outlined text-title-md ${loadingOlder ? 'animate-spin' : ''}`}
-                    aria-hidden="true"
+          {(activeFolder === 'inbox' || activeFolder.startsWith('imap:')) &&
+            !searchQuery.trim() &&
+            !tagFilter &&
+            folderEmails.length > 0 &&
+            onLoadOlderEmails && (
+              <li className="pt-2 pb-1 flex justify-center">
+                {hasMoreOlder ? (
+                  <button
+                    type="button"
+                    disabled={loadingOlder || syncing || syncingFolder}
+                    onClick={onLoadOlderEmails}
+                    className="w-full inline-flex items-center justify-center gap-gutter-xs px-gutter-md py-2.5 rounded-lg bg-light-surface-container-low/80 hover:bg-light-surface-container text-light-on-surface-variant hover:text-light-on-surface font-label text-label-md transition-colors duration-state-change cursor-pointer disabled:opacity-60"
                   >
-                    {loadingOlder ? 'sync' : 'history'}
+                    <span
+                      className={`material-symbols-outlined text-title-md ${loadingOlder ? 'animate-spin' : ''}`}
+                      aria-hidden="true"
+                    >
+                      {loadingOlder ? 'sync' : 'history'}
+                    </span>
+                    <span>
+                      {loadingOlder ? '正在静默加载更早邮件...' : '加载更早邮件（每次 50 封）'}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="py-2 font-label text-label-sm text-light-on-surface-variant/75">
+                    已加载全部历史邮件
                   </span>
-                  <span>
-                    {loadingOlder ? '正在静默加载更早邮件...' : '加载更早邮件（每次 50 封）'}
-                  </span>
-                </button>
-              ) : (
-                <span className="py-2 font-label text-label-sm text-light-on-surface-variant/75">
-                  已加载全部历史邮件
-                </span>
-              )}
-            </li>
-          )}
+                )}
+              </li>
+            )}
         </ul>
 
         {/* Keyboard Shortcut Legend */}
@@ -680,8 +742,8 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
                   </div>
                   <span className="font-body text-body-sm text-light-on-surface-variant">
                     {minimalReading
-                      ? `发送至 我 · ${FOLDER_TITLES[activeFolder]}`
-                      : `发送至 ${userName} <${userEmail}> · ${FOLDER_TITLES[activeFolder]} · TLS 已加密`}
+                      ? `发送至 我 · ${currentFolderTitle}`
+                      : `发送至 ${userName} <${userEmail}> · ${currentFolderTitle} · TLS 已加密`}
                   </span>
                 </div>
               </div>
