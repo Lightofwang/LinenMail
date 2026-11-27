@@ -374,7 +374,7 @@ impl Database {
                 avatar_img: None,
                 initials: "素".into(),
                 subject: "欢迎使用素笺 LinenMail Windows 桌面版（SQLite 本地引擎已就绪）".into(),
-                preview: "您的数据已保存在本地 SQLite 数据库中。点击右上角个人头像或「打开邮箱初始化连接向导」即可直连 QQ、163、Gmail 或企业 IMAP/SMTP 邮箱...",
+                preview: "您的数据已保存在本地 SQLite 数据库中。点击右上角个人头像或「打开邮箱初始化连接向导」即可直连 QQ、163、Gmail 或企业 IMAP/SMTP 邮箱...".into(),
                 time: "刚刚".into(),
                 full_time: format_full_time(now_ms),
                 timestamp_ms: now_ms,
