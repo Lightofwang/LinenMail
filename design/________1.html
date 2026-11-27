@@ -1,0 +1,517 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>素笺 LinenMail — 写信与邮件发送</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config" data-stitch-original-src="121df6c3032723dc===../../tailwind.config.js">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0D9488',
+        'light-primary': '#903F00',
+        'light-on-primary': '#FFFFFF',
+        'light-primary-container': '#B45309',
+        'light-on-primary-container': '#FFF1EB',
+        'light-secondary': '#006A61',
+        'light-on-secondary': '#FFFFFF',
+        'light-secondary-container': '#86F2E4',
+        'light-on-secondary-container': '#006F66',
+        'light-tertiary': '#005998',
+        'light-on-tertiary': '#FFFFFF',
+        'light-tertiary-container': '#0072C0',
+        'light-on-tertiary-container': '#EEF3FF',
+        'light-error': '#BA1A1A',
+        'light-on-error': '#FFFFFF',
+        'light-error-container': '#FFDAD6',
+        'light-on-error-container': '#93000A',
+        'light-background': '#FFF8F6',
+        'light-on-background': '#231914',
+        'light-surface': '#FFF8F6',
+        'light-surface-dim': '#EAD6CD',
+        'light-surface-bright': '#FFF8F6',
+        'light-surface-container-lowest': '#FFFFFF',
+        'light-surface-container-low': '#FFF1EB',
+        'light-surface-container': '#FEEAE1',
+        'light-surface-container-high': '#F8E4DB',
+        'light-surface-container-highest': '#F2DFD6',
+        'light-on-surface': '#231914',
+        'light-surface-variant': '#FADDCE',
+        'light-on-surface-variant': '#564338',
+        'light-outline': '#897267',
+        'light-outline-variant': '#DDC1B3',
+        'light-inverse-surface': '#3A2E28',
+        'light-inverse-on-surface': '#FFEDE5',
+        'light-inverse-primary': '#FFB68E',
+        'light-shadow': '#000000',
+        'light-scrim': '#000000',
+        'dark-primary': '#FFB68E',
+        'dark-on-primary': '#532200',
+        'dark-primary-container': '#B45309',
+        'dark-on-primary-container': '#FFF1EB',
+        'dark-secondary': '#6BD8CB',
+        'dark-on-secondary': '#003732',
+        'dark-secondary-container': '#29A195',
+        'dark-on-secondary-container': '#001D1A',
+        'dark-tertiary': '#9FCAFF',
+        'dark-on-tertiary': '#003259',
+        'dark-tertiary-container': '#0072C0',
+        'dark-on-tertiary-container': '#EEF3FF',
+        'dark-error': '#FFB4AB',
+        'dark-on-error': '#690005',
+        'dark-error-container': '#93000A',
+        'dark-on-error-container': '#FFDAD6',
+        'dark-background': '#1B110C',
+        'dark-on-background': '#F2DFD6',
+        'dark-surface': '#1B110C',
+        'dark-surface-dim': '#1B110C',
+        'dark-surface-bright': '#433731',
+        'dark-surface-container-lowest': '#150C08',
+        'dark-surface-container-low': '#231914',
+        'dark-surface-container': '#281D18',
+        'dark-surface-container-high': '#332822',
+        'dark-surface-container-highest': '#3E322C',
+        'dark-on-surface': '#F2DFD6',
+        'dark-surface-variant': '#564338',
+        'dark-on-surface-variant': '#DDC1B3',
+        'dark-outline': '#A48C7F',
+        'dark-outline-variant': '#564338',
+        'dark-inverse-surface': '#F2DFD6',
+        'dark-inverse-on-surface': '#3A2E28',
+        'dark-inverse-primary': '#9B4500',
+        'dark-shadow': '#000000',
+        'dark-scrim': '#000000',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'DEFAULT': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '24px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '16px',
+        'gutter-lg': '24px',
+        'gutter-xl': '32px',
+        'section': '48px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Domine"', 'sans-serif'],
+        'headline': ['"Domine"', 'sans-serif'],
+        'title': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'body': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'label': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'mono': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '600' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '600' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.25px', fontWeight: '600' }],
+        'headline-md': ['20px', { lineHeight: '28px', letterSpacing: '-0.1px', fontWeight: '600' }],
+        'title-lg': ['18px', { lineHeight: '26px', letterSpacing: '0px', fontWeight: '600' }],
+        'title-md': ['15px', { lineHeight: '22px', letterSpacing: '0px', fontWeight: '600' }],
+        'body-lg': ['15px', { lineHeight: '24px', letterSpacing: '0px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '22px', letterSpacing: '0px', fontWeight: '400' }],
+        'body-sm': ['13px', { lineHeight: '20px', letterSpacing: '0px', fontWeight: '400' }],
+        'label-lg': ['14px', { lineHeight: '20px', letterSpacing: '0px', fontWeight: '600' }],
+        'label-md': ['12px', { lineHeight: '16px', letterSpacing: '0.1px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '16px', letterSpacing: '0.2px', fontWeight: '500' }],
+        'mono-sm': ['12px', { lineHeight: '16px', letterSpacing: '0px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'surface-enter': '240ms',
+        'surface-exit': '150ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'surface-enter': '0ms',
+        'surface-exit': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'surface-enter': 'cubic-bezier(0.2, 0, 0, 1)',
+        'surface-exit': 'cubic-bezier(0.3, 0, 1, 1)',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Domine:wght@600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .material-symbols-outlined {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      line-height: 1 !important;
+      box-sizing: content-box;
+      overflow: hidden;
+      white-space: nowrap;
+      direction: ltr;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body class="bg-light-surface text-light-on-surface font-body antialiased">
+  <div class="min-h-screen bg-light-surface flex flex-col px-gutter-xl py-gutter-lg gap-gutter-xl max-w-[1440px] mx-auto">
+
+    <!-- Contextual Task Flow Header -->
+    <header class="bg-light-surface-container-lowest rounded-xl px-gutter-lg py-gutter-md shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-gutter-lg sticky top-4 z-20">
+      <div class="flex items-center gap-gutter-md">
+        <a href="../main-inbox/MainInboxAndReader.html" class="inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-low text-light-on-surface hover:bg-light-surface-container font-label text-label-md transition-colors duration-state-change focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+          <span class="material-symbols-outlined text-title-md" aria-hidden="true">arrow_back</span>
+          <span>返回收件箱</span>
+        </a>
+
+        <span class="h-5 w-px bg-light-outline-variant/50" aria-hidden="true"></span>
+
+        <div class="flex items-center gap-gutter-sm">
+          <span class="w-2 h-2 rounded-full bg-light-secondary" aria-hidden="true"></span>
+          <span id="draft-save-status" class="font-label text-label-md text-light-on-surface-variant">草稿已自动保存 · 刚刚</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-gutter-sm">
+        <button id="discard-draft-btn" data-component-id="button-icon" data-component-type="button" data-component-variant="icon" type="button" aria-label="丢弃草稿" title="丢弃草稿" class="inline-flex items-center justify-center w-9 h-9 rounded-full text-light-on-surface-variant transition-colors duration-state-change hover:bg-light-error-container hover:text-light-on-error-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">delete_outline</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Focused Single-Column Stationery Sheet -->
+    <main class="w-full flex-1 flex flex-col gap-gutter-lg">
+
+      <!-- Sent Confirmation Banner (Hidden by default) -->
+      <div id="sent-banner" class="hidden items-center justify-between gap-gutter-md px-gutter-lg py-gutter-md rounded-xl bg-light-secondary-container text-light-on-secondary-container">
+        <div class="flex items-center gap-gutter-sm">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">check_circle</span>
+          <span class="font-body text-body-md">邮件已发送至 2 位收件人。</span>
+        </div>
+        <a href="../main-inbox/MainInboxAndReader.html" class="font-label text-label-md underline">回到收件箱</a>
+      </div>
+
+      <section aria-label="邮件撰写纸面" class="bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-gutter-lg flex-1">
+
+        <!-- Envelope Metadata: To, Cc/Bcc, From -->
+        <div class="flex flex-col gap-gutter-sm">
+          <!-- To Row -->
+          <div class="flex items-center justify-between gap-gutter-md py-gutter-xs">
+            <div class="flex items-center flex-wrap gap-gutter-sm flex-1 min-w-0">
+              <span class="font-label text-label-md text-light-on-surface-variant w-12 shrink-0">收件人</span>
+              <div id="recipient-chips" class="flex items-center flex-wrap gap-gutter-xs">
+                <span data-component-id="chip-input" data-component-type="chip" data-component-variant="input" class="recipient-chip inline-flex items-center gap-gutter-xs pl-gutter-md pr-gutter-xs py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container">
+                  <span data-design-text-token="label-md" class="font-label text-label-md">lin.chenxi@atelier.cn</span>
+                  <button type="button" aria-label="移除 lin.chenxi@atelier.cn" class="remove-chip inline-flex items-center justify-center w-5 h-5 rounded-full hover:bg-light-surface-container-lowest transition-colors duration-state-change">
+                    <span class="material-symbols-outlined text-body-sm" aria-hidden="true">close</span>
+                  </button>
+                </span>
+                <span data-component-id="chip-input" data-component-type="chip" data-component-variant="input" class="recipient-chip inline-flex items-center gap-gutter-xs pl-gutter-md pr-gutter-xs py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container">
+                  <span data-design-text-token="label-md" class="font-label text-label-md">siyuan.chen@nexuslab.io</span>
+                  <button type="button" aria-label="移除 siyuan.chen@nexuslab.io" class="remove-chip inline-flex items-center justify-center w-5 h-5 rounded-full hover:bg-light-surface-container-lowest transition-colors duration-state-change">
+                    <span class="material-symbols-outlined text-body-sm" aria-hidden="true">close</span>
+                  </button>
+                </span>
+              </div>
+              <input id="add-recipient-input" type="email" aria-label="添加收件人邮箱" placeholder="输入邮箱后按回车添加..." class="min-w-[180px] flex-1 bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none">
+            </div>
+
+            <button id="toggle-cc-btn" type="button" class="font-label text-label-md text-light-on-surface-variant hover:text-light-on-surface px-gutter-sm py-gutter-xs rounded-full hover:bg-light-surface-container-low transition-colors duration-state-change shrink-0">
+              抄送 / 密送
+            </button>
+          </div>
+
+          <!-- Optional Cc Row -->
+          <div id="cc-row" class="hidden items-center gap-gutter-md py-gutter-xs">
+            <span class="font-label text-label-md text-light-on-surface-variant w-12 shrink-0">抄送</span>
+            <input type="email" aria-label="抄送邮箱" placeholder="添加抄送人邮箱..." class="w-full bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none">
+          </div>
+
+          <!-- From Row -->
+          <div class="flex items-center gap-gutter-md py-gutter-xs">
+            <span class="font-label text-label-md text-light-on-surface-variant w-12 shrink-0">发件人</span>
+            <span class="font-body text-body-md text-light-on-surface">周明远 &lt;zhou@linenmail.cn&gt;</span>
+          </div>
+        </div>
+
+        <div class="h-px bg-light-surface-container-high" aria-hidden="true"></div>
+
+        <!-- Editorial Subject Line -->
+        <div>
+          <label for="compose-subject" class="sr-only">邮件主题</label>
+          <input id="compose-subject" type="text" value="关于 Q4 暖色系设计系统上线的最终排期确认" placeholder="填写邮件主题..." class="w-full bg-transparent border-0 p-0 font-headline text-headline-lg text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none">
+        </div>
+
+        <!-- Minimalist Inline Formatting Strip -->
+        <div class="flex items-center justify-between gap-gutter-md bg-light-surface-container-low rounded-full px-gutter-md py-gutter-xs">
+          <div class="flex items-center gap-gutter-xs">
+            <button type="button" aria-label="加粗" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">format_bold</span>
+            </button>
+            <button type="button" aria-label="斜体" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">format_italic</span>
+            </button>
+            <button type="button" aria-label="项目列表" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">format_list_bulleted</span>
+            </button>
+            <button type="button" aria-label="引用块" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">format_quote</span>
+            </button>
+            <span class="h-4 w-px bg-light-outline-variant/50 mx-gutter-xs" aria-hidden="true"></span>
+            <button type="button" aria-label="插入链接" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">link</span>
+            </button>
+            <button type="button" aria-label="添加附件" class="inline-flex items-center gap-gutter-xs px-gutter-sm py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface font-label text-label-md transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">attach_file</span>
+              <span>添加附件</span>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-gutter-sm">
+            <span id="ai-polish-status" class="hidden font-label text-label-sm text-light-secondary"></span>
+            <button id="ai-undo-polish-btn" type="button" class="hidden px-gutter-sm py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container font-label text-label-sm transition-colors duration-state-change">还原原文</button>
+            <button id="ai-polish-btn" type="button" class="inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container hover:opacity-90 font-label text-label-md transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">auto_awesome</span>
+              <span id="ai-polish-label">AI 一键美化</span>
+            </button>
+            <span id="word-count" class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums px-gutter-sm">158 字</span>
+          </div>
+        </div>
+
+        <!-- Spacious Writing Canvas -->
+        <div class="flex-1 flex flex-col">
+          <label for="compose-body" class="sr-only">邮件正文</label>
+          <textarea id="compose-body" rows="11" placeholder="从这里开始书写..." class="w-full max-w-prose bg-transparent border-0 p-0 font-body text-body-lg text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none resize-none leading-relaxed flex-1">晨曦、思远：
+
+昨晚已经和各位确认完排版规范与同步引擎的基准测试结果，整体非常稳妥。
+
+接下来的发布节奏建议如下：
+1. 周四上午完成主收件箱与智能分类视图的最后走查；
+2. 周五下午三点进行线上灰度发布，优先覆盖桌面端用户；
+3. 下周一早会复盘首批用户的阅读体验反馈。
+
+附件里附上了更新后的排期表，如有调整欢迎随时回复。
+
+祝好，
+明远</textarea>
+        </div>
+
+        <!-- Attached File Strip -->
+        <div id="attachment-strip" class="flex flex-wrap items-center gap-gutter-sm">
+          <div class="inline-flex items-center gap-gutter-sm px-gutter-md py-gutter-sm rounded-md bg-light-surface-container-low text-light-on-surface">
+            <span class="material-symbols-outlined text-title-lg text-light-primary" aria-hidden="true">description</span>
+            <div class="flex flex-col">
+              <span class="font-label text-label-md text-light-on-surface">Q4_Release_Schedule_v3.pdf</span>
+              <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">1.8 MB</span>
+            </div>
+            <button id="remove-attachment-btn" type="button" aria-label="移除附件" class="ml-gutter-sm w-6 h-6 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container">
+              <span class="material-symbols-outlined text-body-md" aria-hidden="true">close</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="h-px bg-light-surface-container-high" aria-hidden="true"></div>
+
+        <!-- Bottom Action & Schedule Bar -->
+        <div class="flex items-center justify-end gap-gutter-md">
+          <div class="relative flex items-center gap-gutter-sm">
+            <button id="save-draft-btn" data-component-id="button-secondary" data-component-type="button" data-component-variant="secondary" type="button" class="inline-flex items-center justify-center px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface transition-colors duration-state-change hover:bg-light-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+              <span data-design-text-token="label-lg" class="font-label text-label-lg">存为草稿</span>
+            </button>
+
+            <button id="schedule-toggle-btn" data-component-id="button-secondary" data-component-type="button" data-component-variant="secondary" type="button" class="inline-flex items-center justify-center gap-gutter-xs px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface transition-colors duration-state-change hover:bg-light-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">schedule_send</span>
+              <span data-design-text-token="label-lg" class="font-label text-label-lg">定时发送</span>
+            </button>
+
+            <button id="footer-send-btn" data-component-id="button-primary" data-component-type="button" data-component-variant="primary" type="button" class="inline-flex items-center justify-center gap-gutter-sm px-gutter-lg py-gutter-sm rounded-full bg-light-primary text-light-on-primary transition-colors duration-state-change hover:bg-light-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary focus-visible:ring-offset-2">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">send</span>
+              <span data-design-text-token="label-lg" class="font-label text-label-lg">发送邮件</span>
+            </button>
+
+            <!-- Schedule Popover -->
+            <div id="schedule-popover" class="hidden absolute right-0 bottom-12 w-60 bg-light-surface-container-lowest rounded-xl p-gutter-sm shadow-[0_16px_40px_-8px_rgba(35,25,20,0.16)] ring-1 ring-light-outline-variant/40 flex-col gap-gutter-xs z-30">
+              <span class="px-gutter-sm py-gutter-xs font-label text-label-md text-light-on-surface-variant">选择发送时间</span>
+              <button type="button" class="schedule-option text-left px-gutter-sm py-gutter-sm rounded-md hover:bg-light-surface-container-low font-body text-body-md text-light-on-surface flex items-center justify-between">
+                <span>今天下午</span>
+                <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">14:00</span>
+              </button>
+              <button type="button" class="schedule-option text-left px-gutter-sm py-gutter-sm rounded-md hover:bg-light-surface-container-low font-body text-body-md text-light-on-surface flex items-center justify-between">
+                <span>明早工作时间</span>
+                <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">09:00</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const recipientChipsEl = document.getElementById('recipient-chips');
+    const addRecipientInput = document.getElementById('add-recipient-input');
+    const composeBody = document.getElementById('compose-body');
+    const wordCountEl = document.getElementById('word-count');
+    const saveStatusEl = document.getElementById('draft-save-status');
+    const sentBannerEl = document.getElementById('sent-banner');
+    const schedulePopover = document.getElementById('schedule-popover');
+
+    // Toggle Cc row
+    document.getElementById('toggle-cc-btn').addEventListener('click', () => {
+      const ccRow = document.getElementById('cc-row');
+      ccRow.classList.toggle('hidden');
+      ccRow.classList.toggle('flex');
+    });
+
+    // Remove recipient chip
+    recipientChipsEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.remove-chip');
+      if (btn) {
+        const chip = btn.closest('.recipient-chip');
+        if (chip) chip.remove();
+      }
+    });
+
+    // Add recipient chip on Enter
+    addRecipientInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && addRecipientInput.value.trim()) {
+        e.preventDefault();
+        const email = addRecipientInput.value.trim();
+        const span = document.createElement('span');
+        span.className = 'recipient-chip inline-flex items-center gap-gutter-xs pl-gutter-md pr-gutter-xs py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container';
+        span.setAttribute('data-component-id', 'chip-input');
+        span.setAttribute('data-component-type', 'chip');
+        span.setAttribute('data-component-variant', 'input');
+        span.innerHTML = `
+          <span data-design-text-token="label-md" class="font-label text-label-md">${email}</span>
+          <button type="button" aria-label="移除 ${email}" class="remove-chip inline-flex items-center justify-center w-5 h-5 rounded-full hover:bg-light-surface-container-lowest transition-colors duration-state-change">
+            <span class="material-symbols-outlined text-body-sm" aria-hidden="true">close</span>
+          </button>
+        `;
+        recipientChipsEl.appendChild(span);
+        addRecipientInput.value = '';
+      }
+    });
+
+    // Live character count
+    composeBody.addEventListener('input', () => {
+      const len = composeBody.value.replace(/\s+/g, '').length;
+      wordCountEl.textContent = `${len} 字`;
+      saveStatusEl.textContent = '草稿已自动保存 · 刚刚';
+    });
+
+    // Remove attachment
+    document.getElementById('remove-attachment-btn').addEventListener('click', () => {
+      document.getElementById('attachment-strip').classList.add('hidden');
+    });
+
+    // Schedule popover
+    document.getElementById('schedule-toggle-btn').addEventListener('click', () => {
+      schedulePopover.classList.toggle('hidden');
+      schedulePopover.classList.toggle('flex');
+    });
+
+    document.querySelectorAll('.schedule-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        schedulePopover.classList.add('hidden');
+        schedulePopover.classList.remove('flex');
+        saveStatusEl.textContent = '已加入定时发送队列';
+      });
+    });
+
+    // Send action
+    const triggerSend = () => {
+      sentBannerEl.classList.remove('hidden');
+      sentBannerEl.classList.add('flex');
+      saveStatusEl.textContent = '邮件已发送';
+    };
+    document.getElementById('footer-send-btn').addEventListener('click', triggerSend);
+    document.getElementById('save-draft-btn').addEventListener('click', () => {
+      saveStatusEl.textContent = '草稿已手动保存 · 刚刚';
+    });
+
+    // AI One-Click Polish (OpenAI-compatible endpoint or local fallback)
+    const polishBtn = document.getElementById('ai-polish-btn');
+    const polishLabel = document.getElementById('ai-polish-label');
+    const polishStatus = document.getElementById('ai-polish-status');
+    const undoPolishBtn = document.getElementById('ai-undo-polish-btn');
+    let originalDraftBeforePolish = null;
+
+    function getLlmConfig() {
+      try {
+        const raw = localStorage.getItem('linenmail_llm_config');
+        if (raw) return JSON.parse(raw);
+      } catch (e) {}
+      return { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini', temperature: 0.3 };
+    }
+
+    polishBtn.addEventListener('click', async () => {
+      const currentText = composeBody.value.trim();
+      if (!currentText) return;
+      if (originalDraftBeforePolish === null) {
+        originalDraftBeforePolish = composeBody.value;
+      }
+
+      const cfg = getLlmConfig();
+      polishLabel.textContent = '正在美化...';
+
+      let polishedText = '';
+      if (cfg.apiKey && cfg.baseUrl) {
+        try {
+          const res = await fetch(`${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${cfg.apiKey}`
+            },
+            body: JSON.stringify({
+              model: cfg.model || 'gpt-4o-mini',
+              temperature: cfg.temperature ?? 0.3,
+              messages: [
+                { role: 'system', content: '你是一位专业的中文商务邮件编辑。请在不改变原意的前提下，优化以下邮件正文的措辞、结构与礼貌度，使段落更清晰自然。直接返回润色后的正文。' },
+                { role: 'user', content: currentText }
+              ]
+            })
+          });
+          const data = await res.json();
+          polishedText = data.choices?.[0]?.message?.content?.trim() || '';
+        } catch (err) {
+          // Fallback on CORS or network error
+        }
+      }
+
+      if (!polishedText) {
+        polishedText = `晨曦、思远，你们好：\n\n昨晚已与团队完成排版规范及同步引擎基准测试的最终核对，各项指标表现稳健，已具备上线条件。\n\n为确保平稳推进，建议接下来的发布节奏安排如下：\n1. 周四上午：完成主收件箱与智能分类视图的终版走查；\n2. 周五 15:00：启动线上灰度发布，优先面向桌面端用户开放；\n3. 下周一早会：复盘首批用户的实际阅读体验与反馈。\n\n更新后的排期表已随信附上，如有任何补充或调整建议，欢迎随时沟通。\n\n顺颂商祺，\n明远`;
+      }
+
+      composeBody.value = polishedText;
+      const len = polishedText.replace(/\s+/g, '').length;
+      wordCountEl.textContent = `${len} 字`;
+      polishLabel.textContent = 'AI 一键美化';
+      polishStatus.textContent = `已润色 · ${cfg.model || 'gpt-4o-mini'}`;
+      polishStatus.classList.remove('hidden');
+      undoPolishBtn.classList.remove('hidden');
+      saveStatusEl.textContent = '草稿已自动保存 · 刚刚';
+    });
+
+    undoPolishBtn.addEventListener('click', () => {
+      if (originalDraftBeforePolish !== null) {
+        composeBody.value = originalDraftBeforePolish;
+        const len = originalDraftBeforePolish.replace(/\s+/g, '').length;
+        wordCountEl.textContent = `${len} 字`;
+        originalDraftBeforePolish = null;
+      }
+      polishStatus.classList.add('hidden');
+      undoPolishBtn.classList.add('hidden');
+    });
+  </script>
+
+
+</body></html>

@@ -1,0 +1,6 @@
+{
+  "name": "素笺 LinenMail",
+  "description": "素笺 LinenMail — 温暖纸感排版与克制聚焦的高效桌面邮件客户端。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

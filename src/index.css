@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent: #0D9488;
+  --color-light-primary: #903F00;
+  --color-light-on-primary: #FFFFFF;
+  --color-light-primary-container: #B45309;
+  --color-light-on-primary-container: #FFF1EB;
+  --color-light-secondary: #006A61;
+  --color-light-on-secondary: #FFFFFF;
+  --color-light-secondary-container: #86F2E4;
+  --color-light-on-secondary-container: #006F66;
+  --color-light-tertiary: #005998;
+  --color-light-on-tertiary: #FFFFFF;
+  --color-light-tertiary-container: #0072C0;
+  --color-light-on-tertiary-container: #EEF3FF;
+  --color-light-error: #BA1A1A;
+  --color-light-on-error: #FFFFFF;
+  --color-light-error-container: #FFDAD6;
+  --color-light-on-error-container: #93000A;
+  --color-light-background: #FFF8F6;
+  --color-light-on-background: #231914;
+  --color-light-surface: #FFF8F6;
+  --color-light-surface-dim: #EAD6CD;
+  --color-light-surface-bright: #FFF8F6;
+  --color-light-surface-container-lowest: #FFFFFF;
+  --color-light-surface-container-low: #FFF1EB;
+  --color-light-surface-container: #FEEAE1;
+  --color-light-surface-container-high: #F8E4DB;
+  --color-light-surface-container-highest: #F2DFD6;
+  --color-light-on-surface: #231914;
+  --color-light-surface-variant: #FADDCE;
+  --color-light-on-surface-variant: #564338;
+  --color-light-outline: #897267;
+  --color-light-outline-variant: #DDC1B3;
+  --color-light-inverse-surface: #3A2E28;
+  --color-light-inverse-on-surface: #FFEDE5;
+  --color-light-inverse-primary: #FFB68E;
+  --color-light-shadow: #000000;
+  --color-light-scrim: #000000;
+
+  --radius-sm: 4px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  --spacing-gutter-xs: 4px;
+  --spacing-gutter-sm: 8px;
+  --spacing-gutter-md: 16px;
+  --spacing-gutter-lg: 24px;
+  --spacing-gutter-xl: 32px;
+  --spacing-section: 48px;
+  --spacing-page-margin: 32px;
+
+  --font-display: "Domine", "Noto Serif SC", serif;
+  --font-headline: "Domine", "Noto Serif SC", serif;
+  --font-title: "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-label: "Plus Jakarta Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --text-display-lg: 36px;
+  --text-display-lg--line-height: 44px;
+  --text-display-lg--letter-spacing: -0.5px;
+  --text-display-lg--font-weight: 600;
+
+  --text-display-lg-mobile: 28px;
+  --text-display-lg-mobile--line-height: 36px;
+  --text-display-lg-mobile--letter-spacing: -0.25px;
+  --text-display-lg-mobile--font-weight: 600;
+
+  --text-headline-lg: 24px;
+  --text-headline-lg--line-height: 32px;
+  --text-headline-lg--letter-spacing: -0.25px;
+  --text-headline-lg--font-weight: 600;
+
+  --text-headline-md: 20px;
+  --text-headline-md--line-height: 28px;
+  --text-headline-md--letter-spacing: -0.1px;
+  --text-headline-md--font-weight: 600;
+
+  --text-title-lg: 18px;
+  --text-title-lg--line-height: 26px;
+  --text-title-lg--letter-spacing: 0px;
+  --text-title-lg--font-weight: 600;
+
+  --text-title-md: 15px;
+  --text-title-md--line-height: 22px;
+  --text-title-md--letter-spacing: 0px;
+  --text-title-md--font-weight: 600;
+
+  --text-body-lg: 15px;
+  --text-body-lg--line-height: 24px;
+  --text-body-lg--letter-spacing: 0px;
+  --text-body-lg--font-weight: 400;
+
+  --text-body-md: 14px;
+  --text-body-md--line-height: 22px;
+  --text-body-md--letter-spacing: 0px;
+  --text-body-md--font-weight: 400;
+
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 20px;
+  --text-body-sm--letter-spacing: 0px;
+  --text-body-sm--font-weight: 400;
+
+  --text-label-lg: 14px;
+  --text-label-lg--line-height: 20px;
+  --text-label-lg--letter-spacing: 0px;
+  --text-label-lg--font-weight: 600;
+
+  --text-label-md: 12px;
+  --text-label-md--line-height: 16px;
+  --text-label-md--letter-spacing: 0.1px;
+  --text-label-md--font-weight: 500;
+
+  --text-label-sm: 11px;
+  --text-label-sm--line-height: 16px;
+  --text-label-sm--letter-spacing: 0.2px;
+  --text-label-sm--font-weight: 500;
+
+  --text-mono-sm: 12px;
+  --text-mono-sm--line-height: 16px;
+  --text-mono-sm--letter-spacing: 0px;
+  --text-mono-sm--font-weight: 500;
+}
+
+@utility duration-state-change {
+  transition-duration: 100ms;
+}
+
+@utility ease-state-change {
+  transition-timing-function: ease-out;
+}
+
+.material-symbols-outlined {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  line-height: 1 !important;
+  box-sizing: content-box;
+  overflow: hidden;
+  white-space: nowrap;
+  direction: ltr;
+  vertical-align: middle;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.material-symbols-filled {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}

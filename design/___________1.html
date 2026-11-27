@@ -1,0 +1,712 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>素笺 LinenMail — 标签分类与智能文件夹</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config" data-stitch-original-src="121df6c3032723dc===../../tailwind.config.js">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0D9488',
+        'light-primary': '#903F00',
+        'light-on-primary': '#FFFFFF',
+        'light-primary-container': '#B45309',
+        'light-on-primary-container': '#FFF1EB',
+        'light-secondary': '#006A61',
+        'light-on-secondary': '#FFFFFF',
+        'light-secondary-container': '#86F2E4',
+        'light-on-secondary-container': '#006F66',
+        'light-tertiary': '#005998',
+        'light-on-tertiary': '#FFFFFF',
+        'light-tertiary-container': '#0072C0',
+        'light-on-tertiary-container': '#EEF3FF',
+        'light-error': '#BA1A1A',
+        'light-on-error': '#FFFFFF',
+        'light-error-container': '#FFDAD6',
+        'light-on-error-container': '#93000A',
+        'light-background': '#FFF8F6',
+        'light-on-background': '#231914',
+        'light-surface': '#FFF8F6',
+        'light-surface-dim': '#EAD6CD',
+        'light-surface-bright': '#FFF8F6',
+        'light-surface-container-lowest': '#FFFFFF',
+        'light-surface-container-low': '#FFF1EB',
+        'light-surface-container': '#FEEAE1',
+        'light-surface-container-high': '#F8E4DB',
+        'light-surface-container-highest': '#F2DFD6',
+        'light-on-surface': '#231914',
+        'light-surface-variant': '#FADDCE',
+        'light-on-surface-variant': '#564338',
+        'light-outline': '#897267',
+        'light-outline-variant': '#DDC1B3',
+        'light-inverse-surface': '#3A2E28',
+        'light-inverse-on-surface': '#FFEDE5',
+        'light-inverse-primary': '#FFB68E',
+        'light-shadow': '#000000',
+        'light-scrim': '#000000',
+        'dark-primary': '#FFB68E',
+        'dark-on-primary': '#532200',
+        'dark-primary-container': '#B45309',
+        'dark-on-primary-container': '#FFF1EB',
+        'dark-secondary': '#6BD8CB',
+        'dark-on-secondary': '#003732',
+        'dark-secondary-container': '#29A195',
+        'dark-on-secondary-container': '#001D1A',
+        'dark-tertiary': '#9FCAFF',
+        'dark-on-tertiary': '#003259',
+        'dark-tertiary-container': '#0072C0',
+        'dark-on-tertiary-container': '#EEF3FF',
+        'dark-error': '#FFB4AB',
+        'dark-on-error': '#690005',
+        'dark-error-container': '#93000A',
+        'dark-on-error-container': '#FFDAD6',
+        'dark-background': '#1B110C',
+        'dark-on-background': '#F2DFD6',
+        'dark-surface': '#1B110C',
+        'dark-surface-dim': '#1B110C',
+        'dark-surface-bright': '#433731',
+        'dark-surface-container-lowest': '#150C08',
+        'dark-surface-container-low': '#231914',
+        'dark-surface-container': '#281D18',
+        'dark-surface-container-high': '#332822',
+        'dark-surface-container-highest': '#3E322C',
+        'dark-on-surface': '#F2DFD6',
+        'dark-surface-variant': '#564338',
+        'dark-on-surface-variant': '#DDC1B3',
+        'dark-outline': '#A48C7F',
+        'dark-outline-variant': '#564338',
+        'dark-inverse-surface': '#F2DFD6',
+        'dark-inverse-on-surface': '#3A2E28',
+        'dark-inverse-primary': '#9B4500',
+        'dark-shadow': '#000000',
+        'dark-scrim': '#000000',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'DEFAULT': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '24px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '16px',
+        'gutter-lg': '24px',
+        'gutter-xl': '32px',
+        'section': '48px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Domine"', 'sans-serif'],
+        'headline': ['"Domine"', 'sans-serif'],
+        'title': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'body': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'label': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'mono': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '600' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '600' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.25px', fontWeight: '600' }],
+        'headline-md': ['20px', { lineHeight: '28px', letterSpacing: '-0.1px', fontWeight: '600' }],
+        'title-lg': ['18px', { lineHeight: '26px', letterSpacing: '0px', fontWeight: '600' }],
+        'title-md': ['15px', { lineHeight: '22px', letterSpacing: '0px', fontWeight: '600' }],
+        'body-lg': ['15px', { lineHeight: '24px', letterSpacing: '0px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '22px', letterSpacing: '0px', fontWeight: '400' }],
+        'body-sm': ['13px', { lineHeight: '20px', letterSpacing: '0px', fontWeight: '400' }],
+        'label-lg': ['14px', { lineHeight: '20px', letterSpacing: '0px', fontWeight: '600' }],
+        'label-md': ['12px', { lineHeight: '16px', letterSpacing: '0.1px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '16px', letterSpacing: '0.2px', fontWeight: '500' }],
+        'mono-sm': ['12px', { lineHeight: '16px', letterSpacing: '0px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'surface-enter': '240ms',
+        'surface-exit': '150ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'surface-enter': '0ms',
+        'surface-exit': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'surface-enter': 'cubic-bezier(0.2, 0, 0, 1)',
+        'surface-exit': 'cubic-bezier(0.3, 0, 1, 1)',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Domine:wght@600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .material-symbols-outlined {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      line-height: 1 !important;
+      box-sizing: content-box;
+      overflow: hidden;
+      white-space: nowrap;
+      direction: ltr;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body class="bg-light-surface text-light-on-surface font-body antialiased">
+  <div class="min-h-screen bg-light-surface flex flex-col px-gutter-xl py-gutter-lg gap-gutter-lg max-w-[1440px] mx-auto">
+
+    <!-- Floating Command & Navigation Header (Shared Shell) -->
+    <header class="bg-light-surface-container-lowest rounded-xl px-gutter-lg py-gutter-md shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-gutter-lg sticky top-4 z-20">
+      <div class="flex items-center gap-gutter-lg">
+        <!-- Brand Mark -->
+        <a href="../main-inbox/MainInboxAndReader.html" class="flex items-center gap-gutter-sm text-light-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary rounded-md px-gutter-xs">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-light-primary text-light-on-primary">
+            <span class="material-symbols-outlined text-title-lg" aria-hidden="true">mail</span>
+          </span>
+          <span class="font-headline text-title-lg text-light-on-surface tracking-tight">素笺</span>
+        </a>
+
+        <span class="h-5 w-px bg-light-outline-variant/50" aria-hidden="true"></span>
+
+        <!-- Folder Switcher Pills -->
+        <nav aria-label="邮件文件夹" class="flex items-center gap-gutter-xs shrink-0">
+          <a href="../main-inbox/MainInboxAndReader.html" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>收件箱</span>
+            <span class="font-mono text-mono-sm tabular-nums text-light-secondary">4</span>
+          </a>
+          
+          <button type="button" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>已发送</span>
+          </button>
+          <button type="button" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>归档</span>
+          </button>
+          <a href="#" aria-current="page" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-highest text-light-on-surface font-label text-label-md transition-colors duration-state-change">
+            <span>智能分类</span>
+          </a>
+          <a href="../contacts/ContactsAndAttachments.html" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>联系人</span>
+          </a>
+        </nav>
+      </div>
+
+      <!-- Command Searchbar -->
+      <form data-component-id="searchbar-standard" data-component-type="searchbar" data-component-variant="standard" role="search" onsubmit="event.preventDefault();" class="flex items-center gap-gutter-sm w-64 px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface transition-colors duration-state-change focus-within:bg-light-surface-container-lowest focus-within:ring-1 focus-within:ring-light-outline-variant">
+        <button type="submit" aria-label="搜索规则或标签" class="inline-flex items-center justify-center text-light-on-surface-variant hover:text-light-on-surface">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">search</span>
+        </button>
+        <input id="rule-search-input" type="search" aria-label="搜索智能文件夹或标签" placeholder="搜索智能文件夹、规则或标签..." class="w-full bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none">
+        <kbd data-design-text-token="mono-sm" class="font-mono text-mono-sm px-gutter-sm py-gutter-xs rounded-sm bg-light-surface-container text-light-on-surface-variant shrink-0">⌘K</kbd>
+      </form>
+
+      <!-- Compose + Settings + User Profile -->
+      <div class="flex items-center gap-gutter-sm shrink-0">
+        <a href="../compose/ComposeAndSend.html" data-component-id="button-with-icon" data-component-type="button" data-component-variant="with-icon" class="inline-flex items-center justify-center gap-gutter-sm px-gutter-lg py-gutter-sm rounded-full bg-light-primary text-light-on-primary transition-colors duration-state-change ease-state-change hover:bg-light-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary focus-visible:ring-offset-2">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">edit_square</span>
+          <span data-design-text-token="label-lg" class="font-label text-label-lg">写邮件</span>
+        </a>
+
+        <a href="../system-settings/SystemSettingsAndFilters.html" data-component-id="button-icon" data-component-type="button" data-component-variant="icon" aria-label="系统设置与邮件过滤器" title="系统设置" class="inline-flex items-center justify-center w-9 h-9 rounded-full text-light-on-surface-variant transition-colors duration-state-change ease-state-change hover:bg-light-surface-container-low hover:text-light-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">settings</span>
+        </a>
+
+        <a href="../account-settings/AccountAndSettings.html" data-component-id="avatar-editable" data-component-type="avatar" data-component-variant="editable" aria-label="个人账户周明远" title="周明远 (zhou@linenmail.cn)" class="relative w-10 h-10 rounded-full bg-light-primary-container text-light-on-primary-container flex items-center justify-center transition-opacity duration-state-change hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+          <span data-design-text-token="label-md" class="font-label text-label-md">周</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Page Title & Actions -->
+    <section class="flex items-center justify-between gap-gutter-lg px-gutter-xs">
+      <div class="flex flex-col gap-gutter-xs">
+        <h1 class="font-headline text-headline-lg text-light-on-surface text-balance">标签分类与智能文件夹</h1>
+        <p class="font-body text-body-md text-light-on-surface-variant text-pretty">按发件人、主题关键词与附件类型自动归集邮件，保持主收件箱专注清爽。</p>
+      </div>
+
+      <div class="flex items-center gap-gutter-sm shrink-0">
+        <button id="new-label-btn" data-component-id="button-secondary" data-component-type="button" data-component-variant="secondary" type="button" class="inline-flex items-center justify-center gap-gutter-xs px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface transition-colors duration-state-change ease-state-change hover:bg-light-surface-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+          <span class="material-symbols-outlined text-title-md" aria-hidden="true">label</span>
+          <span data-design-text-token="label-lg" class="font-label text-label-lg">新建标签</span>
+        </button>
+        <button id="new-folder-btn" data-component-id="button-primary" data-component-type="button" data-component-variant="primary" type="button" class="inline-flex items-center justify-center gap-gutter-xs px-gutter-lg py-gutter-sm rounded-full bg-light-primary text-light-on-primary transition-colors duration-state-change ease-state-change hover:bg-light-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary focus-visible:ring-offset-2">
+          <span class="material-symbols-outlined text-title-md" aria-hidden="true">create_new_folder</span>
+          <span data-design-text-token="label-lg" class="font-label text-label-lg">新建智能文件夹</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Main 2-Column Editorial Workspace -->
+    <main class="grid grid-cols-12 gap-gutter-xl flex-1 items-start">
+
+      <!-- Left Column: Smart Folders Stream -->
+      <section aria-label="智能文件夹列表" class="col-span-7 flex flex-col gap-gutter-md">
+        <div class="flex items-center justify-between px-gutter-xs">
+          <h2 class="font-headline text-headline-md text-light-on-surface">智能文件夹</h2>
+          <span id="smart-folder-count" class="font-label text-label-md text-light-on-surface-variant tabular-nums">4 条规则运行中</span>
+        </div>
+
+        <ul id="smart-folder-list" class="flex flex-col gap-gutter-md" role="listbox" aria-label="智能文件夹">
+          <li role="option" aria-selected="true" data-id="sf-1" class="folder-card flex items-start justify-between gap-gutter-lg p-gutter-lg rounded-xl cursor-pointer transition-colors duration-state-change bg-light-surface-container-lowest shadow-[0_12px_36px_-8px_rgba(35,25,20,0.08)] ring-1 ring-light-outline-variant/40">
+            <div class="flex items-start gap-gutter-md min-w-0">
+              <span class="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-light-surface-container-low text-light-primary shrink-0">
+                <span class="material-symbols-outlined text-title-lg" aria-hidden="true">palette</span>
+              </span>
+              <div class="flex flex-col gap-gutter-xs min-w-0">
+                <div class="flex items-center gap-gutter-sm">
+                  <h3 class="font-title text-title-md text-light-on-surface">设计评审与反馈</h3>
+                  <span class="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">2 未读</span>
+                </div>
+                <p class="font-body text-body-sm text-light-on-surface-variant truncate">主题包含 &#34;设计&#34; · 主题包含 &#34;排版&#34; · 发件人 @atelier.cn</p>
+                <span class="font-label text-label-md text-light-on-surface-variant tabular-nums">共匹配 12 封邮件</span>
+              </div>
+            </div>
+
+            <button type="button" role="switch" aria-checked="true" aria-label="切换 设计评审与反馈 自动规则" data-toggle-id="sf-1" class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full p-0.5 transition-colors duration-state-change bg-light-primary">
+              <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-light-surface-container-lowest transition-transform duration-state-change translate-x-5"></span>
+            </button>
+          </li>
+        
+          <li role="option" aria-selected="false" data-id="sf-2" class="folder-card flex items-start justify-between gap-gutter-lg p-gutter-lg rounded-xl cursor-pointer transition-colors duration-state-change bg-light-surface-container-lowest/70 hover:bg-light-surface-container-lowest">
+            <div class="flex items-start gap-gutter-md min-w-0">
+              <span class="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-light-surface-container-low text-light-primary shrink-0">
+                <span class="material-symbols-outlined text-title-lg" aria-hidden="true">auto_stories</span>
+              </span>
+              <div class="flex flex-col gap-gutter-xs min-w-0">
+                <div class="flex items-center gap-gutter-sm">
+                  <h3 class="font-title text-title-md text-light-on-surface">精选周刊与订阅</h3>
+                  <span class="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">4 未读</span>
+                </div>
+                <p class="font-body text-body-sm text-light-on-surface-variant truncate">发件人包含 digest@ · 发件人包含 newsletter@ · 含退订链接</p>
+                <span class="font-label text-label-md text-light-on-surface-variant tabular-nums">共匹配 28 封邮件</span>
+              </div>
+            </div>
+
+            <button type="button" role="switch" aria-checked="true" aria-label="切换 精选周刊与订阅 自动规则" data-toggle-id="sf-2" class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full p-0.5 transition-colors duration-state-change bg-light-primary">
+              <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-light-surface-container-lowest transition-transform duration-state-change translate-x-5"></span>
+            </button>
+          </li>
+        
+          <li role="option" aria-selected="false" data-id="sf-3" class="folder-card flex items-start justify-between gap-gutter-lg p-gutter-lg rounded-xl cursor-pointer transition-colors duration-state-change bg-light-surface-container-lowest/70 hover:bg-light-surface-container-lowest">
+            <div class="flex items-start gap-gutter-md min-w-0">
+              <span class="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-light-surface-container-low text-light-primary shrink-0">
+                <span class="material-symbols-outlined text-title-lg" aria-hidden="true">receipt_long</span>
+              </span>
+              <div class="flex flex-col gap-gutter-xs min-w-0">
+                <div class="flex items-center gap-gutter-sm">
+                  <h3 class="font-title text-title-md text-light-on-surface">财务票据与账单</h3>
+                  
+                </div>
+                <p class="font-body text-body-sm text-light-on-surface-variant truncate">主题包含 &#34;发票&#34; · 主题包含 &#34;账单&#34; · 包含 PDF 附件</p>
+                <span class="font-label text-label-md text-light-on-surface-variant tabular-nums">共匹配 9 封邮件</span>
+              </div>
+            </div>
+
+            <button type="button" role="switch" aria-checked="true" aria-label="切换 财务票据与账单 自动规则" data-toggle-id="sf-3" class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full p-0.5 transition-colors duration-state-change bg-light-primary">
+              <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-light-surface-container-lowest transition-transform duration-state-change translate-x-5"></span>
+            </button>
+          </li>
+        
+          <li role="option" aria-selected="false" data-id="sf-4" class="folder-card flex items-start justify-between gap-gutter-lg p-gutter-lg rounded-xl cursor-pointer transition-colors duration-state-change bg-light-surface-container-lowest/70 hover:bg-light-surface-container-lowest">
+            <div class="flex items-start gap-gutter-md min-w-0">
+              <span class="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-light-surface-container-low text-light-primary shrink-0">
+                <span class="material-symbols-outlined text-title-lg" aria-hidden="true">terminal</span>
+              </span>
+              <div class="flex flex-col gap-gutter-xs min-w-0">
+                <div class="flex items-center gap-gutter-sm">
+                  <h3 class="font-title text-title-md text-light-on-surface">工程研发与发布</h3>
+                  <span class="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">1 未读</span>
+                </div>
+                <p class="font-body text-body-sm text-light-on-surface-variant truncate">发件人 @nexuslab.io · 主题包含 &#34;测试报告&#34;</p>
+                <span class="font-label text-label-md text-light-on-surface-variant tabular-nums">共匹配 19 封邮件</span>
+              </div>
+            </div>
+
+            <button type="button" role="switch" aria-checked="true" aria-label="切换 工程研发与发布 自动规则" data-toggle-id="sf-4" class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full p-0.5 transition-colors duration-state-change bg-light-primary">
+              <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-light-surface-container-lowest transition-transform duration-state-change translate-x-5"></span>
+            </button>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Right Column: Labels & Rule Inspector -->
+      <aside aria-label="个人标签与规则预览" class="col-span-5 flex flex-col gap-gutter-lg">
+
+        <!-- Rule Preview Card -->
+        <section id="rule-inspector" class="bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-gutter-md">
+          <div class="flex items-center justify-between gap-gutter-sm">
+            <span class="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-secondary-container text-light-on-secondary-container font-label text-label-md">规则详情预览</span>
+            <button id="edit-rule-btn" type="button" class="inline-flex items-center gap-gutter-xs font-label text-label-md text-light-primary hover:underline">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">tune</span>
+              <span>调整条件</span>
+            </button>
+          </div>
+
+          <h2 id="inspector-title" class="font-headline text-headline-md text-light-on-surface">设计评审与反馈</h2>
+
+          <div class="flex flex-col gap-gutter-sm bg-light-surface-container-low rounded-lg p-gutter-md">
+            <div class="flex items-center justify-between">
+              <span class="font-label text-label-md text-light-on-surface-variant">匹配条件（满足任意一项）</span>
+              <span id="inspector-match-count" class="font-mono text-mono-sm text-light-secondary tabular-nums">已归集 12 封</span>
+            </div>
+            <div id="inspector-conditions" class="flex flex-wrap gap-gutter-xs">
+        <span class="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-lowest text-light-on-surface font-label text-label-md">主题包含 &#34;设计&#34;</span>
+      
+        <span class="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-lowest text-light-on-surface font-label text-label-md">主题包含 &#34;排版&#34;</span>
+      
+        <span class="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-lowest text-light-on-surface font-label text-label-md">发件人 @atelier.cn</span>
+      </div>
+          </div>
+
+          <div class="flex flex-col gap-gutter-xs">
+            <span class="font-label text-label-md text-light-on-surface-variant">自动执行动作</span>
+            <p id="inspector-action" class="font-body text-body-md text-light-on-surface">自动添加标签「设计评审」，并保留在收件箱优先展示。</p>
+          </div>
+        </section>
+
+        <!-- Personal Labels Card -->
+        <section class="bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-gutter-md">
+          <div class="flex items-center justify-between">
+            <h2 class="font-headline text-headline-md text-light-on-surface">个人标签</h2>
+            <span id="label-total-count" class="font-label text-label-md text-light-on-surface-variant tabular-nums">6 个标签</span>
+          </div>
+
+          <ul id="label-list" class="flex flex-col gap-gutter-xs">
+        <li class="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-sm">
+            <span class="w-2.5 h-2.5 rounded-full bg-light-primary" aria-hidden="true"></span>
+            <span class="font-body text-body-md text-light-on-surface">设计评审</span>
+          </div>
+          <div class="flex items-center gap-gutter-sm">
+            <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">12</span>
+            <button type="button" aria-label="编辑标签 设计评审" class="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">edit</span>
+            </button>
+          </div>
+        </li>
+      
+        <li class="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-sm">
+            <span class="w-2.5 h-2.5 rounded-full bg-light-secondary" aria-hidden="true"></span>
+            <span class="font-body text-body-md text-light-on-surface">品牌合作</span>
+          </div>
+          <div class="flex items-center gap-gutter-sm">
+            <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">7</span>
+            <button type="button" aria-label="编辑标签 品牌合作" class="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">edit</span>
+            </button>
+          </div>
+        </li>
+      
+        <li class="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-sm">
+            <span class="w-2.5 h-2.5 rounded-full bg-light-tertiary" aria-hidden="true"></span>
+            <span class="font-body text-body-md text-light-on-surface">工程研发</span>
+          </div>
+          <div class="flex items-center gap-gutter-sm">
+            <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">19</span>
+            <button type="button" aria-label="编辑标签 工程研发" class="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">edit</span>
+            </button>
+          </div>
+        </li>
+      
+        <li class="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-sm">
+            <span class="w-2.5 h-2.5 rounded-full bg-light-primary-container" aria-hidden="true"></span>
+            <span class="font-body text-body-md text-light-on-surface">精选订阅</span>
+          </div>
+          <div class="flex items-center gap-gutter-sm">
+            <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">28</span>
+            <button type="button" aria-label="编辑标签 精选订阅" class="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">edit</span>
+            </button>
+          </div>
+        </li>
+      
+        <li class="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-sm">
+            <span class="w-2.5 h-2.5 rounded-full bg-light-on-surface-variant" aria-hidden="true"></span>
+            <span class="font-body text-body-md text-light-on-surface">日程通知</span>
+          </div>
+          <div class="flex items-center gap-gutter-sm">
+            <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">5</span>
+            <button type="button" aria-label="编辑标签 日程通知" class="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">edit</span>
+            </button>
+          </div>
+        </li>
+      
+        <li class="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-sm">
+            <span class="w-2.5 h-2.5 rounded-full bg-light-secondary" aria-hidden="true"></span>
+            <span class="font-body text-body-md text-light-on-surface">财务票据</span>
+          </div>
+          <div class="flex items-center gap-gutter-sm">
+            <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">9</span>
+            <button type="button" aria-label="编辑标签 财务票据" class="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">edit</span>
+            </button>
+          </div>
+        </li>
+      </ul>
+        </section>
+      </aside>
+
+    </main>
+  </div>
+
+  <!-- New Smart Folder / Rule Modal -->
+  <div id="folder-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-light-scrim/30 p-gutter-lg" role="dialog" aria-modal="true" aria-labelledby="folder-modal-title">
+    <div class="w-full max-w-lg bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_24px_60px_-12px_rgba(35,25,20,0.18)] flex flex-col gap-gutter-md">
+      <div class="flex items-center justify-between">
+        <h2 id="folder-modal-title" class="font-headline text-headline-md text-light-on-surface">新建智能文件夹</h2>
+        <button id="close-folder-modal-btn" type="button" aria-label="关闭弹窗" class="inline-flex items-center justify-center w-9 h-9 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-colors duration-state-change">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">close</span>
+        </button>
+      </div>
+      <div class="flex flex-col gap-gutter-sm">
+        <label class="flex flex-col gap-gutter-xs">
+          <span class="font-label text-label-md text-light-on-surface-variant">文件夹名称</span>
+          <input id="new-folder-name" type="text" placeholder="例如：重要客户往来" class="w-full px-gutter-md py-gutter-sm rounded-md bg-light-surface-container-low border-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-1 focus:ring-light-primary">
+        </label>
+        <label class="flex flex-col gap-gutter-xs">
+          <span class="font-label text-label-md text-light-on-surface-variant">匹配关键词或发件人</span>
+          <input id="new-folder-rule" type="text" placeholder="例如：来自 @client.com 或 主题包含 合同" class="w-full px-gutter-md py-gutter-sm rounded-md bg-light-surface-container-low border-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-1 focus:ring-light-primary">
+        </label>
+      </div>
+      <div class="flex items-center justify-end gap-gutter-sm pt-gutter-sm">
+        <button id="cancel-folder-modal-btn" type="button" class="inline-flex items-center justify-center px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface hover:bg-light-surface-container font-label text-label-lg transition-colors duration-state-change">取消</button>
+        <button id="save-folder-modal-btn" type="button" class="inline-flex items-center justify-center px-gutter-lg py-gutter-sm rounded-full bg-light-primary text-light-on-primary hover:bg-light-primary-container font-label text-label-lg transition-colors duration-state-change">保存规则</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SMART_FOLDERS = [
+      {
+        id: 'sf-1',
+        name: '设计评审与反馈',
+        icon: 'palette',
+        total: 12,
+        unread: 2,
+        enabled: true,
+        conditions: ['主题包含 "设计"', '主题包含 "排版"', '发件人 @atelier.cn'],
+        actionText: '自动添加标签「设计评审」，并保留在收件箱优先展示。'
+      },
+      {
+        id: 'sf-2',
+        name: '精选周刊与订阅',
+        icon: 'auto_stories',
+        total: 28,
+        unread: 4,
+        enabled: true,
+        conditions: ['发件人包含 digest@', '发件人包含 newsletter@', '含退订链接'],
+        actionText: '自动添加标签「精选订阅」，跳过收件箱归入每日阅读角。'
+      },
+      {
+        id: 'sf-3',
+        name: '财务票据与账单',
+        icon: 'receipt_long',
+        total: 9,
+        unread: 0,
+        enabled: true,
+        conditions: ['主题包含 "发票"', '主题包含 "账单"', '包含 PDF 附件'],
+        actionText: '自动添加标签「财务票据」，并标记为低打扰归档备查。'
+      },
+      {
+        id: 'sf-4',
+        name: '工程研发与发布',
+        icon: 'terminal',
+        total: 19,
+        unread: 1,
+        enabled: true,
+        conditions: ['发件人 @nexuslab.io', '主题包含 "测试报告"'],
+        actionText: '自动添加标签「工程研发」，保留在收件箱并开启桌面提醒。'
+      }
+    ];
+
+    const LABELS = [
+      { id: 'lbl-1', name: '设计评审', count: 12, dotClass: 'bg-light-primary' },
+      { id: 'lbl-2', name: '品牌合作', count: 7, dotClass: 'bg-light-secondary' },
+      { id: 'lbl-3', name: '工程研发', count: 19, dotClass: 'bg-light-tertiary' },
+      { id: 'lbl-4', name: '精选订阅', count: 28, dotClass: 'bg-light-primary-container' },
+      { id: 'lbl-5', name: '日程通知', count: 5, dotClass: 'bg-light-on-surface-variant' },
+      { id: 'lbl-6', name: '财务票据', count: 9, dotClass: 'bg-light-secondary' }
+    ];
+
+    let selectedFolderId = 'sf-1';
+    let searchQuery = '';
+
+    const folderListEl = document.getElementById('smart-folder-list');
+    const labelListEl = document.getElementById('label-list');
+
+    function renderFolders() {
+      const filtered = SMART_FOLDERS.filter(f => {
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.trim().toLowerCase();
+        return f.name.toLowerCase().includes(q) || f.conditions.some(c => c.toLowerCase().includes(q));
+      });
+
+      const activeCount = SMART_FOLDERS.filter(f => f.enabled).length;
+      document.getElementById('smart-folder-count').textContent = `${activeCount} 条规则运行中`;
+
+      folderListEl.innerHTML = filtered.map(folder => {
+        const isSelected = folder.id === selectedFolderId;
+        return `
+          <li
+            role="option"
+            aria-selected="${isSelected}"
+            data-id="${folder.id}"
+            class="folder-card flex items-start justify-between gap-gutter-lg p-gutter-lg rounded-xl cursor-pointer transition-colors duration-state-change ${
+              isSelected
+                ? 'bg-light-surface-container-lowest shadow-[0_12px_36px_-8px_rgba(35,25,20,0.08)] ring-1 ring-light-outline-variant/40'
+                : 'bg-light-surface-container-lowest/70 hover:bg-light-surface-container-lowest'
+            }"
+          >
+            <div class="flex items-start gap-gutter-md min-w-0">
+              <span class="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-light-surface-container-low text-light-primary shrink-0">
+                <span class="material-symbols-outlined text-title-lg" aria-hidden="true">${folder.icon}</span>
+              </span>
+              <div class="flex flex-col gap-gutter-xs min-w-0">
+                <div class="flex items-center gap-gutter-sm">
+                  <h3 class="font-title text-title-md text-light-on-surface">${folder.name}</h3>
+                  ${folder.unread > 0 ? `<span class="font-mono text-mono-sm tabular-nums px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">${folder.unread} 未读</span>` : ''}
+                </div>
+                <p class="font-body text-body-sm text-light-on-surface-variant truncate">${folder.conditions.join(' · ')}</p>
+                <span class="font-label text-label-md text-light-on-surface-variant tabular-nums">共匹配 ${folder.total} 封邮件</span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked="${folder.enabled}"
+              aria-label="切换 ${folder.name} 自动规则"
+              data-toggle-id="${folder.id}"
+              class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full p-0.5 transition-colors duration-state-change ${
+                folder.enabled ? 'bg-light-primary' : 'bg-light-surface-container-highest'
+              }"
+            >
+              <span class="pointer-events-none inline-block h-5 w-5 rounded-full bg-light-surface-container-lowest transition-transform duration-state-change ${
+                folder.enabled ? 'translate-x-5' : 'translate-x-0'
+              }"></span>
+            </button>
+          </li>
+        `;
+      }).join('');
+    }
+
+    function renderInspector() {
+      const folder = SMART_FOLDERS.find(f => f.id === selectedFolderId) || SMART_FOLDERS[0];
+      if (!folder) return;
+
+      document.getElementById('inspector-title').textContent = folder.name;
+      document.getElementById('inspector-match-count').textContent = `已归集 ${folder.total} 封`;
+      document.getElementById('inspector-action').textContent = folder.actionText;
+      document.getElementById('inspector-conditions').innerHTML = folder.conditions.map(cond => `
+        <span class="inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-lowest text-light-on-surface font-label text-label-md">${cond}</span>
+      `).join('');
+    }
+
+    function renderLabels() {
+      const filtered = LABELS.filter(l => {
+        if (!searchQuery.trim()) return true;
+        return l.name.toLowerCase().includes(searchQuery.trim().toLowerCase());
+      });
+
+      document.getElementById('label-total-count').textContent = `${LABELS.length} 个标签`;
+
+      labelListEl.innerHTML = filtered.map(lbl => `
+        <li class="group flex items-center justify-between gap-gutter-md px-gutter-md py-gutter-sm rounded-lg hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-sm">
+            <span class="w-2.5 h-2.5 rounded-full ${lbl.dotClass}" aria-hidden="true"></span>
+            <span class="font-body text-body-md text-light-on-surface">${lbl.name}</span>
+          </div>
+          <div class="flex items-center gap-gutter-sm">
+            <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">${lbl.count}</span>
+            <button type="button" aria-label="编辑标签 ${lbl.name}" class="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center w-7 h-7 rounded-full text-light-on-surface-variant hover:bg-light-surface-container transition-opacity duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">edit</span>
+            </button>
+          </div>
+        </li>
+      `).join('');
+    }
+
+    folderListEl.addEventListener('click', (e) => {
+      const toggleBtn = e.target.closest('button[data-toggle-id]');
+      if (toggleBtn) {
+        e.stopPropagation();
+        const id = toggleBtn.dataset.toggleId;
+        const folder = SMART_FOLDERS.find(f => f.id === id);
+        if (folder) {
+          folder.enabled = !folder.enabled;
+          renderFolders();
+        }
+        return;
+      }
+      const card = e.target.closest('.folder-card');
+      if (card) {
+        selectedFolderId = card.dataset.id;
+        renderFolders();
+        renderInspector();
+      }
+    });
+
+    document.getElementById('rule-search-input').addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      renderFolders();
+      renderLabels();
+    });
+
+    const folderModal = document.getElementById('folder-modal');
+    const openModal = () => {
+      folderModal.classList.remove('hidden');
+      folderModal.classList.add('flex');
+    };
+    const closeModal = () => {
+      folderModal.classList.add('hidden');
+      folderModal.classList.remove('flex');
+    };
+
+    document.getElementById('new-folder-btn').addEventListener('click', openModal);
+    document.getElementById('edit-rule-btn').addEventListener('click', openModal);
+    document.getElementById('close-folder-modal-btn').addEventListener('click', closeModal);
+    document.getElementById('cancel-folder-modal-btn').addEventListener('click', closeModal);
+    document.getElementById('save-folder-modal-btn').addEventListener('click', () => {
+      const name = document.getElementById('new-folder-name').value.trim();
+      const rule = document.getElementById('new-folder-rule').value.trim();
+      if (name) {
+        SMART_FOLDERS.unshift({
+          id: 'sf-' + Date.now(),
+          name,
+          icon: 'folder_special',
+          total: 0,
+          unread: 0,
+          enabled: true,
+          conditions: [rule || '自定义关键词匹配'],
+          actionText: `自动添加标签「${name}」，并归集到智能文件夹。`
+        });
+        selectedFolderId = SMART_FOLDERS[0].id;
+        document.getElementById('new-folder-name').value = '';
+        document.getElementById('new-folder-rule').value = '';
+        renderFolders();
+        renderInspector();
+      }
+      closeModal();
+    });
+
+    renderFolders();
+    renderInspector();
+    renderLabels();
+  </script>
+
+
+</body></html>

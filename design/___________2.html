@@ -1,0 +1,812 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>素笺 LinenMail — 联系人与往来附件中心</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config" data-stitch-original-src="121df6c3032723dc===../../tailwind.config.js">/** @type {import('tailwindcss').Config} */
+globalThis.tailwind = globalThis.tailwind || {};
+globalThis.tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'accent': '#0D9488',
+        'light-primary': '#903F00',
+        'light-on-primary': '#FFFFFF',
+        'light-primary-container': '#B45309',
+        'light-on-primary-container': '#FFF1EB',
+        'light-secondary': '#006A61',
+        'light-on-secondary': '#FFFFFF',
+        'light-secondary-container': '#86F2E4',
+        'light-on-secondary-container': '#006F66',
+        'light-tertiary': '#005998',
+        'light-on-tertiary': '#FFFFFF',
+        'light-tertiary-container': '#0072C0',
+        'light-on-tertiary-container': '#EEF3FF',
+        'light-error': '#BA1A1A',
+        'light-on-error': '#FFFFFF',
+        'light-error-container': '#FFDAD6',
+        'light-on-error-container': '#93000A',
+        'light-background': '#FFF8F6',
+        'light-on-background': '#231914',
+        'light-surface': '#FFF8F6',
+        'light-surface-dim': '#EAD6CD',
+        'light-surface-bright': '#FFF8F6',
+        'light-surface-container-lowest': '#FFFFFF',
+        'light-surface-container-low': '#FFF1EB',
+        'light-surface-container': '#FEEAE1',
+        'light-surface-container-high': '#F8E4DB',
+        'light-surface-container-highest': '#F2DFD6',
+        'light-on-surface': '#231914',
+        'light-surface-variant': '#FADDCE',
+        'light-on-surface-variant': '#564338',
+        'light-outline': '#897267',
+        'light-outline-variant': '#DDC1B3',
+        'light-inverse-surface': '#3A2E28',
+        'light-inverse-on-surface': '#FFEDE5',
+        'light-inverse-primary': '#FFB68E',
+        'light-shadow': '#000000',
+        'light-scrim': '#000000',
+        'dark-primary': '#FFB68E',
+        'dark-on-primary': '#532200',
+        'dark-primary-container': '#B45309',
+        'dark-on-primary-container': '#FFF1EB',
+        'dark-secondary': '#6BD8CB',
+        'dark-on-secondary': '#003732',
+        'dark-secondary-container': '#29A195',
+        'dark-on-secondary-container': '#001D1A',
+        'dark-tertiary': '#9FCAFF',
+        'dark-on-tertiary': '#003259',
+        'dark-tertiary-container': '#0072C0',
+        'dark-on-tertiary-container': '#EEF3FF',
+        'dark-error': '#FFB4AB',
+        'dark-on-error': '#690005',
+        'dark-error-container': '#93000A',
+        'dark-on-error-container': '#FFDAD6',
+        'dark-background': '#1B110C',
+        'dark-on-background': '#F2DFD6',
+        'dark-surface': '#1B110C',
+        'dark-surface-dim': '#1B110C',
+        'dark-surface-bright': '#433731',
+        'dark-surface-container-lowest': '#150C08',
+        'dark-surface-container-low': '#231914',
+        'dark-surface-container': '#281D18',
+        'dark-surface-container-high': '#332822',
+        'dark-surface-container-highest': '#3E322C',
+        'dark-on-surface': '#F2DFD6',
+        'dark-surface-variant': '#564338',
+        'dark-on-surface-variant': '#DDC1B3',
+        'dark-outline': '#A48C7F',
+        'dark-outline-variant': '#564338',
+        'dark-inverse-surface': '#F2DFD6',
+        'dark-inverse-on-surface': '#3A2E28',
+        'dark-inverse-primary': '#9B4500',
+        'dark-shadow': '#000000',
+        'dark-scrim': '#000000',
+      },
+      borderRadius: {
+        'sm': '4px',
+        'DEFAULT': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '24px',
+        'full': '9999px',
+      },
+      spacing: {
+        'gutter-xs': '4px',
+        'gutter-sm': '8px',
+        'gutter-md': '16px',
+        'gutter-lg': '24px',
+        'gutter-xl': '32px',
+        'section': '48px',
+        'page-margin': '32px',
+      },
+      fontFamily: {
+        'display': ['"Domine"', 'sans-serif'],
+        'headline': ['"Domine"', 'sans-serif'],
+        'title': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'body': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'label': ['"Plus Jakarta Sans"', 'sans-serif'],
+        'mono': ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-lg': ['36px', { lineHeight: '44px', letterSpacing: '-0.5px', fontWeight: '600' }],
+        'display-lg-mobile': ['28px', { lineHeight: '36px', letterSpacing: '-0.25px', fontWeight: '600' }],
+        'headline-lg': ['24px', { lineHeight: '32px', letterSpacing: '-0.25px', fontWeight: '600' }],
+        'headline-md': ['20px', { lineHeight: '28px', letterSpacing: '-0.1px', fontWeight: '600' }],
+        'title-lg': ['18px', { lineHeight: '26px', letterSpacing: '0px', fontWeight: '600' }],
+        'title-md': ['15px', { lineHeight: '22px', letterSpacing: '0px', fontWeight: '600' }],
+        'body-lg': ['15px', { lineHeight: '24px', letterSpacing: '0px', fontWeight: '400' }],
+        'body-md': ['14px', { lineHeight: '22px', letterSpacing: '0px', fontWeight: '400' }],
+        'body-sm': ['13px', { lineHeight: '20px', letterSpacing: '0px', fontWeight: '400' }],
+        'label-lg': ['14px', { lineHeight: '20px', letterSpacing: '0px', fontWeight: '600' }],
+        'label-md': ['12px', { lineHeight: '16px', letterSpacing: '0.1px', fontWeight: '500' }],
+        'label-sm': ['11px', { lineHeight: '16px', letterSpacing: '0.2px', fontWeight: '500' }],
+        'mono-sm': ['12px', { lineHeight: '16px', letterSpacing: '0px', fontWeight: '500' }],
+      },
+      transitionDuration: {
+        'state-change': '100ms',
+        'surface-enter': '240ms',
+        'surface-exit': '150ms',
+      },
+      transitionDelay: {
+        'state-change': '0ms',
+        'surface-enter': '0ms',
+        'surface-exit': '0ms',
+      },
+      transitionTimingFunction: {
+        'state-change': 'ease-out',
+        'surface-enter': 'cubic-bezier(0.2, 0, 0, 1)',
+        'surface-exit': 'cubic-bezier(0.3, 0, 1, 1)',
+      },
+    },
+  },
+};
+if (typeof module !== 'undefined') module.exports = globalThis.tailwind.config;
+</script>
+  <link href="https://fonts.googleapis.com/css2?family=Domine:wght@600&amp;family=Plus+Jakarta+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet">
+  <style>
+    .material-symbols-outlined {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      line-height: 1 !important;
+      box-sizing: content-box;
+      overflow: hidden;
+      white-space: nowrap;
+      direction: ltr;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body class="bg-light-surface text-light-on-surface font-body antialiased">
+  <div class="min-h-screen bg-light-surface flex flex-col px-gutter-xl py-gutter-lg gap-gutter-lg max-w-[1440px] mx-auto">
+
+    <!-- Floating Command & Navigation Header (Shared Shell) -->
+    <header class="bg-light-surface-container-lowest rounded-xl px-gutter-lg py-gutter-md shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-gutter-lg sticky top-4 z-20">
+      <div class="flex items-center gap-gutter-lg">
+        <a href="../main-inbox/MainInboxAndReader.html" class="flex items-center gap-gutter-sm text-light-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary rounded-md px-gutter-xs">
+          <span class="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-light-primary text-light-on-primary">
+            <span class="material-symbols-outlined text-title-lg" aria-hidden="true">mail</span>
+          </span>
+          <span class="font-headline text-title-lg text-light-on-surface tracking-tight">素笺</span>
+        </a>
+
+        <span class="h-5 w-px bg-light-outline-variant/50" aria-hidden="true"></span>
+
+        <nav aria-label="邮件文件夹" class="flex items-center gap-gutter-xs shrink-0">
+          <a href="../main-inbox/MainInboxAndReader.html" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>收件箱</span>
+            <span class="font-mono text-mono-sm tabular-nums text-light-secondary">4</span>
+          </a>
+          
+          <button type="button" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>已发送</span>
+          </button>
+          <button type="button" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>归档</span>
+          </button>
+          <a href="../smart-folders/SmartFoldersAndLabels.html" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+            <span>智能分类</span>
+          </a>
+          <a href="#" aria-current="page" class="folder-tab shrink-0 inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-highest text-light-on-surface font-label text-label-md transition-colors duration-state-change">
+            <span>联系人</span>
+          </a>
+        </nav>
+      </div>
+
+      <!-- Command Searchbar -->
+      <form data-component-id="searchbar-standard" data-component-type="searchbar" data-component-variant="standard" role="search" onsubmit="event.preventDefault();" class="flex items-center gap-gutter-sm w-64 px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface transition-colors duration-state-change focus-within:bg-light-surface-container-lowest focus-within:ring-1 focus-within:ring-light-outline-variant">
+        <button type="submit" aria-label="搜索联系人或附件" class="inline-flex items-center justify-center text-light-on-surface-variant hover:text-light-on-surface">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">search</span>
+        </button>
+        <input id="contact-search-input" type="search" aria-label="搜索联系人姓名、邮箱或附件文件名" placeholder="搜索联系人或往来附件..." class="w-full bg-transparent border-0 p-0 font-body text-body-md text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none">
+        <kbd data-design-text-token="mono-sm" class="font-mono text-mono-sm px-gutter-sm py-gutter-xs rounded-sm bg-light-surface-container text-light-on-surface-variant shrink-0">⌘K</kbd>
+      </form>
+
+      <!-- Compose + Settings + User Profile -->
+      <div class="flex items-center gap-gutter-sm shrink-0">
+        <a href="../compose/ComposeAndSend.html" data-component-id="button-with-icon" data-component-type="button" data-component-variant="with-icon" class="inline-flex items-center justify-center gap-gutter-sm px-gutter-lg py-gutter-sm rounded-full bg-light-primary text-light-on-primary transition-colors duration-state-change ease-state-change hover:bg-light-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary focus-visible:ring-offset-2">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">edit_square</span>
+          <span data-design-text-token="label-lg" class="font-label text-label-lg">写邮件</span>
+        </a>
+
+        <a href="../system-settings/SystemSettingsAndFilters.html" data-component-id="button-icon" data-component-type="button" data-component-variant="icon" aria-label="系统设置与邮件过滤器" title="系统设置" class="inline-flex items-center justify-center w-9 h-9 rounded-full text-light-on-surface-variant transition-colors duration-state-change ease-state-change hover:bg-light-surface-container-low hover:text-light-on-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+          <span class="material-symbols-outlined text-title-lg" aria-hidden="true">settings</span>
+        </a>
+
+        <a href="../account-settings/AccountAndSettings.html" data-component-id="avatar-editable" data-component-type="avatar" data-component-variant="editable" aria-label="个人账户周明远" title="周明远 (zhou@linenmail.cn)" class="relative w-10 h-10 rounded-full bg-light-primary-container text-light-on-primary-container flex items-center justify-center transition-opacity duration-state-change hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary">
+          <span data-design-text-token="label-md" class="font-label text-label-md">周</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main 2-Column Editorial Workspace -->
+    <main class="grid grid-cols-12 gap-gutter-xl flex-1 items-start">
+
+      <!-- Left Column: Contacts Stream -->
+      <section aria-label="联系人列表" class="col-span-5 flex flex-col gap-gutter-md">
+        <div class="flex flex-col gap-gutter-md px-gutter-xs">
+          <div class="flex items-center justify-between">
+            <h1 class="font-headline text-headline-lg text-light-on-surface">联系人与附件</h1>
+            <span id="contact-count" class="font-label text-label-md text-light-on-surface-variant tabular-nums">5 位常用联系人</span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-gutter-sm" role="group" aria-label="联系人筛选">
+            <button data-group="all" type="button" aria-pressed="true" class="group-chip inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-highest text-light-on-surface font-label text-label-md transition-colors duration-state-change">全部联系人</button>
+            <button data-group="starred" type="button" aria-pressed="false" class="group-chip inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-low text-light-on-surface-variant hover:bg-light-surface-container font-label text-label-md transition-colors duration-state-change">星标常用</button>
+            <button data-group="team" type="button" aria-pressed="false" class="group-chip inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-low text-light-on-surface-variant hover:bg-light-surface-container font-label text-label-md transition-colors duration-state-change">团队协作</button>
+            <button data-group="partner" type="button" aria-pressed="false" class="group-chip inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-low text-light-on-surface-variant hover:bg-light-surface-container font-label text-label-md transition-colors duration-state-change">外部伙伴</button>
+          </div>
+        </div>
+
+        <ul id="contact-list" class="flex flex-col gap-gutter-xs" role="listbox" aria-label="联系人列表">
+          <li role="option" aria-selected="true" data-id="c-1" class="contact-row flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg cursor-pointer transition-colors duration-state-change bg-light-surface-container-lowest shadow-[0_4px_16px_-4px_rgba(35,25,20,0.06)]">
+            <div class="flex items-center gap-gutter-md min-w-0">
+              <div class="w-11 h-11 rounded-full overflow-hidden bg-light-surface-container shrink-0"><img src="https://lh3.googleusercontent.com/aida/ALJJyrCr_JqJeDDSZgZ09hiPLFzeiprnA6uAzuBSGC0UR3VNl_y8IcpLzRO4DNB7hMDMvLHlLDIrb1zPv0Te2s_r6luoAusxLgs7L_4lGveAB_YqsyDnTS6FCsBdjJnx1XK85e1lVIrFlcfomi5REhA13K7S90FEcjr73MpbqNilN0D9KBT6V6LIai0NDi4lrNvo8E3dVThX0t5HDKPKCe00fzp-y7GD9YSkyagSa4-6YZetPnSAPHc" alt="林晨曦" class="w-full h-full object-cover"></div>
+              <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-gutter-xs">
+                  <span class="font-title text-title-md text-light-on-surface truncate">林晨曦</span>
+                  <span class="material-symbols-outlined text-body-sm text-light-primary" style="font-variation-settings: &#39;FILL&#39; 1;" aria-hidden="true">star</span>
+                </div>
+                <span class="font-body text-body-sm text-light-on-surface-variant truncate">设计负责人 · Atelier Studio</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-end shrink-0">
+              <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">4 个附件</span>
+              <span class="font-label text-label-sm text-light-on-surface-variant tabular-nums">今天 10:24</span>
+            </div>
+          </li>
+        
+          <li role="option" aria-selected="false" data-id="c-2" class="contact-row flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg cursor-pointer transition-colors duration-state-change hover:bg-light-surface-container-low">
+            <div class="flex items-center gap-gutter-md min-w-0">
+              <div class="w-11 h-11 rounded-full overflow-hidden bg-light-surface-container shrink-0"><img src="https://lh3.googleusercontent.com/aida/ALJJyrAemjNN_sgNF0trJ4OKgLnyi-qzlely-UcRzlyyD5NvwCsTdtb3RaItCUmoqiQPJ3bzXvUMxzMN2VL2womqxuaSlNXDjWbkoRDE8bMf1vKfOE50CwwD0ozffzZSXtx9_2i2Z4afWSjo0e7hfWpAG6CGSGybLzweDWSrgVyZkRF0YBtIgkLHrjert8vGHoRPJT-67Lo7bOv_MDe-LnFFYorZSIEqVd-NJ3N6wOhWRsjsMKy3IgHQ" alt="陈思远" class="w-full h-full object-cover"></div>
+              <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-gutter-xs">
+                  <span class="font-title text-title-md text-light-on-surface truncate">陈思远</span>
+                  <span class="material-symbols-outlined text-body-sm text-light-primary" style="font-variation-settings: &#39;FILL&#39; 1;" aria-hidden="true">star</span>
+                </div>
+                <span class="font-body text-body-sm text-light-on-surface-variant truncate">系统架构师 · NexusLab</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-end shrink-0">
+              <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">3 个附件</span>
+              <span class="font-label text-label-sm text-light-on-surface-variant tabular-nums">今天 09:15</span>
+            </div>
+          </li>
+        
+          <li role="option" aria-selected="false" data-id="c-3" class="contact-row flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg cursor-pointer transition-colors duration-state-change hover:bg-light-surface-container-low">
+            <div class="flex items-center gap-gutter-md min-w-0">
+              <div class="w-11 h-11 rounded-full overflow-hidden bg-light-surface-container shrink-0"><img src="https://lh3.googleusercontent.com/aida/ALJJyrD5OxdWjb12kzBmGOrM5X1pkdLQyubQliaWsUemVqJ3qoK5-4En0tsKPCBnVFfHtvklOghioBXQ62QcHhHkge1midpsDHMhH02TXwBpU9RhkDZDYaI4tFd-WZQ3yRwdlP0BcM6Ha911e_XF24m5nxEV7XfHdtCb75-ApJwyxfz5jxd947glMrZ1MwZTIdV6isf6GMk7chsvPaJVd9uXmyZxUiosc30IMlTOFK92A-DRf6f7kg" alt="苏婉清" class="w-full h-full object-cover"></div>
+              <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-gutter-xs">
+                  <span class="font-title text-title-md text-light-on-surface truncate">苏婉清</span>
+                  <span class="material-symbols-outlined text-body-sm text-light-primary" style="font-variation-settings: &#39;FILL&#39; 1;" aria-hidden="true">star</span>
+                </div>
+                <span class="font-body text-body-sm text-light-on-surface-variant truncate">创意总监 · Monocle Studio</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-end shrink-0">
+              <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">2 个附件</span>
+              <span class="font-label text-label-sm text-light-on-surface-variant tabular-nums">昨天 17:42</span>
+            </div>
+          </li>
+        
+          <li role="option" aria-selected="false" data-id="c-4" class="contact-row flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg cursor-pointer transition-colors duration-state-change hover:bg-light-surface-container-low">
+            <div class="flex items-center gap-gutter-md min-w-0">
+              <div class="w-11 h-11 rounded-full bg-light-secondary-container text-light-on-secondary-container flex items-center justify-center shrink-0"><span class="font-label text-label-lg">周</span></div>
+              <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-gutter-xs">
+                  <span class="font-title text-title-md text-light-on-surface truncate">周子昂</span>
+                  
+                </div>
+                <span class="font-body text-body-sm text-light-on-surface-variant truncate">法务顾问 · 君合事务所</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-end shrink-0">
+              <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">1 个附件</span>
+              <span class="font-label text-label-sm text-light-on-surface-variant tabular-nums">11月21日</span>
+            </div>
+          </li>
+        
+          <li role="option" aria-selected="false" data-id="c-5" class="contact-row flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg cursor-pointer transition-colors duration-state-change hover:bg-light-surface-container-low">
+            <div class="flex items-center gap-gutter-md min-w-0">
+              <div class="w-11 h-11 rounded-full bg-light-secondary-container text-light-on-secondary-container flex items-center justify-center shrink-0"><span class="font-label text-label-lg">云</span></div>
+              <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-gutter-xs">
+                  <span class="font-title text-title-md text-light-on-surface truncate">云栖账单中心</span>
+                  
+                </div>
+                <span class="font-body text-body-sm text-light-on-surface-variant truncate">财务与订阅服务</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-end shrink-0">
+              <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">2 个附件</span>
+              <span class="font-label text-label-sm text-light-on-surface-variant tabular-nums">11月22日</span>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Right Column: Contact Detail & Attachment History Hub -->
+      <article aria-label="联系人往来附件中心" class="col-span-7 bg-light-surface-container-lowest rounded-xl p-gutter-xl shadow-[0_12px_36px_-8px_rgba(35,25,20,0.07)] flex flex-col gap-gutter-lg min-h-[760px]">
+
+        <!-- Contact Identity Header -->
+        <div class="flex items-center justify-between gap-gutter-md">
+          <div class="flex items-center gap-gutter-md">
+            <div id="detail-avatar" class="w-14 h-14 rounded-full overflow-hidden bg-light-surface-container shrink-0"><img src="https://lh3.googleusercontent.com/aida/ALJJyrCr_JqJeDDSZgZ09hiPLFzeiprnA6uAzuBSGC0UR3VNl_y8IcpLzRO4DNB7hMDMvLHlLDIrb1zPv0Te2s_r6luoAusxLgs7L_4lGveAB_YqsyDnTS6FCsBdjJnx1XK85e1lVIrFlcfomi5REhA13K7S90FEcjr73MpbqNilN0D9KBT6V6LIai0NDi4lrNvo8E3dVThX0t5HDKPKCe00fzp-y7GD9YSkyagSa4-6YZetPnSAPHc" alt="林晨曦" class="w-full h-full object-cover"></div>
+            <div class="flex flex-col gap-gutter-xs">
+              <div class="flex items-center gap-gutter-sm">
+                <h2 id="detail-name" class="font-headline text-headline-md text-light-on-surface">林晨曦</h2>
+                <span id="detail-group-badge" class="px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container font-label text-label-sm">团队协作</span>
+              </div>
+              <p id="detail-role" class="font-body text-body-sm text-light-on-surface-variant">设计负责人 · Atelier Studio · lin.chenxi@atelier.cn</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-gutter-xs shrink-0">
+            <button id="detail-star-btn" type="button" aria-label="星标联系人" class="inline-flex items-center justify-center w-9 h-9 rounded-full text-light-primary hover:bg-light-surface-container transition-colors duration-state-change">
+              <span id="detail-star-icon" class="material-symbols-outlined text-title-lg" style="font-variation-settings: &#39;FILL&#39; 1;" aria-hidden="true">star</span>
+            </button>
+            <a href="../compose/ComposeAndSend.html" data-component-id="button-primary" data-component-type="button" data-component-variant="primary" class="inline-flex items-center justify-center gap-gutter-xs px-gutter-md py-gutter-sm rounded-full bg-light-primary text-light-on-primary hover:bg-light-primary-container transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">send</span>
+              <span data-design-text-token="label-lg" class="font-label text-label-lg">发邮件</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- View Switcher Tabs -->
+        <div class="flex items-center justify-between gap-gutter-md border-b border-light-surface-container-high pb-gutter-sm">
+          <div class="flex items-center gap-gutter-xs" role="tablist" aria-label="往来内容视图">
+            <button id="tab-attachments" role="tab" aria-selected="true" type="button" class="detail-tab px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-highest text-light-on-surface font-label text-label-md transition-colors duration-state-change">
+              往来附件 (<span id="tab-att-count" class="tabular-nums">4</span>)
+            </button>
+            <button id="tab-threads" role="tab" aria-selected="false" type="button" class="detail-tab px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change">
+              历史邮件 (<span id="tab-thread-count" class="tabular-nums">3</span>)
+            </button>
+          </div>
+          <span id="detail-last-sync" class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">最近往来：今天 10:24</span>
+        </div>
+
+        <!-- Attachments Panel -->
+        <div id="panel-attachments" role="tabpanel" class="flex flex-col gap-gutter-sm flex-1">
+        <div class="group flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-md min-w-0">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-light-surface-container-lowest text-light-primary shrink-0">
+              <span class="material-symbols-outlined text-title-lg" aria-hidden="true">description</span>
+            </span>
+            <div class="flex flex-col min-w-0">
+              <span class="font-title text-title-md text-light-on-surface truncate">Linen_Typography_Spec_v2.pdf</span>
+              <div class="flex items-center gap-gutter-sm font-body text-body-sm text-light-on-surface-variant">
+                <span>对方发送</span>
+                <span aria-hidden="true">·</span>
+                <span class="font-mono text-mono-sm tabular-nums">2.4 MB</span>
+                <span aria-hidden="true">·</span>
+                <span class="tabular-nums">今天 10:24</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-gutter-xs shrink-0">
+            <a href="../main-inbox/MainInboxAndReader.html" title="定位原邮件" aria-label="定位原邮件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">open_in_new</span>
+            </a>
+            <button type="button" title="下载附件" aria-label="下载附件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">download</span>
+            </button>
+          </div>
+        </div>
+      
+        <div class="group flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-md min-w-0">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-light-surface-container-lowest text-light-primary shrink-0">
+              <span class="material-symbols-outlined text-title-lg" aria-hidden="true">description</span>
+            </span>
+            <div class="flex flex-col min-w-0">
+              <span class="font-title text-title-md text-light-on-surface truncate">Q4_Color_Tokens_Audit.pdf</span>
+              <div class="flex items-center gap-gutter-sm font-body text-body-sm text-light-on-surface-variant">
+                <span>我发送</span>
+                <span aria-hidden="true">·</span>
+                <span class="font-mono text-mono-sm tabular-nums">1.1 MB</span>
+                <span aria-hidden="true">·</span>
+                <span class="tabular-nums">11月23日</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-gutter-xs shrink-0">
+            <a href="../main-inbox/MainInboxAndReader.html" title="定位原邮件" aria-label="定位原邮件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">open_in_new</span>
+            </a>
+            <button type="button" title="下载附件" aria-label="下载附件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">download</span>
+            </button>
+          </div>
+        </div>
+      
+        <div class="group flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-md min-w-0">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-light-surface-container-lowest text-light-primary shrink-0">
+              <span class="material-symbols-outlined text-title-lg" aria-hidden="true">image</span>
+            </span>
+            <div class="flex flex-col min-w-0">
+              <span class="font-title text-title-md text-light-on-surface truncate">Editorial_Grid_Reference.jpg</span>
+              <div class="flex items-center gap-gutter-sm font-body text-body-sm text-light-on-surface-variant">
+                <span>对方发送</span>
+                <span aria-hidden="true">·</span>
+                <span class="font-mono text-mono-sm tabular-nums">3.8 MB</span>
+                <span aria-hidden="true">·</span>
+                <span class="tabular-nums">11月19日</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-gutter-xs shrink-0">
+            <a href="../main-inbox/MainInboxAndReader.html" title="定位原邮件" aria-label="定位原邮件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">open_in_new</span>
+            </a>
+            <button type="button" title="下载附件" aria-label="下载附件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">download</span>
+            </button>
+          </div>
+        </div>
+      
+        <div class="group flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-md min-w-0">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-light-surface-container-lowest text-light-primary shrink-0">
+              <span class="material-symbols-outlined text-title-lg" aria-hidden="true">description</span>
+            </span>
+            <div class="flex flex-col min-w-0">
+              <span class="font-title text-title-md text-light-on-surface truncate">Design_Review_Notes.pdf</span>
+              <div class="flex items-center gap-gutter-sm font-body text-body-sm text-light-on-surface-variant">
+                <span>对方发送</span>
+                <span aria-hidden="true">·</span>
+                <span class="font-mono text-mono-sm tabular-nums">620 KB</span>
+                <span aria-hidden="true">·</span>
+                <span class="tabular-nums">11月12日</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-gutter-xs shrink-0">
+            <a href="../main-inbox/MainInboxAndReader.html" title="定位原邮件" aria-label="定位原邮件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">open_in_new</span>
+            </a>
+            <button type="button" title="下载附件" aria-label="下载附件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">download</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+        <!-- Threads Panel -->
+        <div id="panel-threads" role="tabpanel" class="hidden flex-col gap-gutter-sm flex-1">
+        <a href="../main-inbox/MainInboxAndReader.html" class="flex flex-col gap-gutter-xs p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center justify-between gap-gutter-md">
+            <span class="font-title text-title-md text-light-on-surface truncate">Q4 设计系统排版规范与暖色系组件库终稿确认</span>
+            <time class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums shrink-0">今天 10:24</time>
+          </div>
+          <p class="font-body text-body-sm text-light-on-surface-variant truncate">昨晚我们已经把 Q4 桌面端设计系统的排版尺度与暖白表面层级全部整理完毕...</p>
+        </a>
+      
+        <a href="../main-inbox/MainInboxAndReader.html" class="flex flex-col gap-gutter-xs p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center justify-between gap-gutter-md">
+            <span class="font-title text-title-md text-light-on-surface truncate">桌面端阅读视图留白比例讨论</span>
+            <time class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums shrink-0">11月23日</time>
+          </div>
+          <p class="font-body text-body-sm text-light-on-surface-variant truncate">正文栏宽限制在 64ch 后长文阅读的沉浸感明显更好了。</p>
+        </a>
+      
+        <a href="../main-inbox/MainInboxAndReader.html" class="flex flex-col gap-gutter-xs p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center justify-between gap-gutter-md">
+            <span class="font-title text-title-md text-light-on-surface truncate">组件库视觉走查纪要</span>
+            <time class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums shrink-0">11月12日</time>
+          </div>
+          <p class="font-body text-body-sm text-light-on-surface-variant truncate">附上了本次走查发现的 4 处圆角与间距微调建议。</p>
+        </a>
+      </div>
+      </article>
+
+    </main>
+  </div>
+
+  <script data-stitch-original-script="4ea8e97a3974a571===../../images/avatar_lin.jpg|||e90b8095bc6d4048===../../images/avatar_chen.jpg|||e3b755bc6fa42f2a===../../images/avatar_su.jpg">
+    const CONTACTS = [
+      {
+        id: 'c-1',
+        name: '林晨曦',
+        role: '设计负责人 · Atelier Studio',
+        email: 'lin.chenxi@atelier.cn',
+        avatarImg: 'https://lh3.googleusercontent.com/aida/ALJJyrBCu9qa0DaPKIPMs0VtkdSmmfivb-7FTqz1DY1cgnQgz6-TX-RKoExoNUBQHIsW52R-YfgebTk9c2Jd9DnqPCq2OCWF8vU2jEWRb_iwy4dE0PurbawMSlg2fEaLpbYlrp9wE4tP1ujzXJFksTszlYN1AwoxuHzBon4n4NM6kNSh2Zk59obtz_0b_PIVn8MeysCVhwkYexHBA2ePKmpwWqkya65AJeHSAZOcYUN5InhIhgXetPw',
+        initials: '林',
+        group: 'team',
+        groupLabel: '团队协作',
+        starred: true,
+        lastActive: '今天 10:24',
+        attachments: [
+          { name: 'Linen_Typography_Spec_v2.pdf', size: '2.4 MB', date: '今天 10:24', dir: '对方发送', icon: 'description' },
+          { name: 'Q4_Color_Tokens_Audit.pdf', size: '1.1 MB', date: '11月23日', dir: '我发送', icon: 'description' },
+          { name: 'Editorial_Grid_Reference.jpg', size: '3.8 MB', date: '11月19日', dir: '对方发送', icon: 'image' },
+          { name: 'Design_Review_Notes.pdf', size: '620 KB', date: '11月12日', dir: '对方发送', icon: 'description' }
+        ],
+        threads: [
+          { subject: 'Q4 设计系统排版规范与暖色系组件库终稿确认', time: '今天 10:24', snippet: '昨晚我们已经把 Q4 桌面端设计系统的排版尺度与暖白表面层级全部整理完毕...' },
+          { subject: '桌面端阅读视图留白比例讨论', time: '11月23日', snippet: '正文栏宽限制在 64ch 后长文阅读的沉浸感明显更好了。' },
+          { subject: '组件库视觉走查纪要', time: '11月12日', snippet: '附上了本次走查发现的 4 处圆角与间距微调建议。' }
+        ]
+      },
+      {
+        id: 'c-2',
+        name: '陈思远',
+        role: '系统架构师 · NexusLab',
+        email: 'siyuan.chen@nexuslab.io',
+        avatarImg: 'https://lh3.googleusercontent.com/aida/ALJJyrBGhW7TOviAJh4W5xC7X0v9T2J-50ZHtXE8nPipZd_-p7xGH9xYH2cJVeKgLYrDAAFzgo-VQWqBAB5Avkh92Dv4NGWqoj3l7TX_6bukxHJGmcCVVuHfmw9fqA-1rpzjsyMUf_j7OXQEaITEtz9EClHZSdXEKSnQcTC94jCsZtPHEeX5XI65XKNP68xTFO8VPnaIFQZbEay5nzgmm21zO8BiS6oyvSKB17lJG4yWZQwRcm7WtKQr',
+        initials: '陈',
+        group: 'team',
+        groupLabel: '团队协作',
+        starred: true,
+        lastActive: '今天 09:15',
+        attachments: [
+          { name: 'Sync_Benchmark_Nov.csv', size: '680 KB', date: '今天 09:15', dir: '对方发送', icon: 'table_chart' },
+          { name: 'IMAP_Cache_Architecture.pdf', size: '1.9 MB', date: '11月20日', dir: '对方发送', icon: 'description' },
+          { name: 'Q4_Release_Schedule_v3.pdf', size: '1.8 MB', date: '11月18日', dir: '我发送', icon: 'description' }
+        ],
+        threads: [
+          { subject: '邮件同步引擎性能优化测试报告（冷启动缩短 42%）', time: '今天 09:15', snippet: '本周我们对本地索引缓存和增量拉取策略做了一轮压测，结果比预期更理想...' },
+          { subject: 'IMAP 断线重连与本地索引策略', time: '11月20日', snippet: '弱网环境下会自动退避重试，不会阻塞主线程阅读。' }
+        ]
+      },
+      {
+        id: 'c-3',
+        name: '苏婉清',
+        role: '创意总监 · Monocle Studio',
+        email: 'wanqing.su@monocle-studio.cn',
+        avatarImg: 'https://lh3.googleusercontent.com/aida/ALJJyrAMk2R4Wv7UFob7fxh2lsAMM5bIfYHMeV0lnuy_sTiMOqChQXDzZQzQ02bWxpbKZbmEJ6RjebHGYdknmu0VE1uKc_oERQJEHz28fnusUlQALzNHbs1eNvElFBbByA8CxurLROL8aMGhsXu9_k02-Q0TPOsRAzmZWsCI147vDSSuE0NGjxs0-O40y5ZUGCe_LEtIbvkOBANnRhzqfk1Ztb4Tg_Ai_Lti0hegMhMfgVHvfxbIXg',
+        initials: '苏',
+        group: 'partner',
+        groupLabel: '外部伙伴',
+        starred: true,
+        lastActive: '昨天 17:42',
+        attachments: [
+          { name: 'Spring_Visual_Moodboard.pdf', size: '5.2 MB', date: '昨天 17:42', dir: '对方发送', icon: 'description' },
+          { name: 'Paper_Texture_Samples.jpg', size: '4.1 MB', date: '11月15日', dir: '对方发送', icon: 'image' }
+        ],
+        threads: [
+          { subject: '下周三品牌视觉工作坊议程与静物摄影参考', time: '昨天 17:42', snippet: '整理了几组偏暖色调纸张与自然光影的视觉参考，方便大家现场对齐审美方向...' },
+          { subject: '春季刊联名合作初稿沟通', time: '11月15日', snippet: '附件是几张纸张肌理的实拍样片。' }
+        ]
+      },
+      {
+        id: 'c-4',
+        name: '周子昂',
+        role: '法务顾问 · 君合事务所',
+        email: 'ziang.zhou@junhe-law.cn',
+        avatarImg: null,
+        initials: '周',
+        group: 'partner',
+        groupLabel: '外部伙伴',
+        starred: false,
+        lastActive: '11月21日',
+        attachments: [
+          { name: 'Software_License_Agreement_Final.pdf', size: '940 KB', date: '11月21日', dir: '对方发送', icon: 'description' }
+        ],
+        threads: [
+          { subject: '企业版软件授权协议终稿审阅反馈', time: '11月21日', snippet: '第 4.2 条数据本地加密条款已按贵司要求完成修订。' }
+        ]
+      },
+      {
+        id: 'c-5',
+        name: '云栖账单中心',
+        role: '财务与订阅服务',
+        email: 'billing@cloud-nest.cn',
+        avatarImg: null,
+        initials: '云',
+        group: 'partner',
+        groupLabel: '外部伙伴',
+        starred: false,
+        lastActive: '11月22日',
+        attachments: [
+          { name: 'Invoice_2026_11.pdf', size: '312 KB', date: '11月22日', dir: '对方发送', icon: 'description' },
+          { name: 'Invoice_2026_10.pdf', size: '308 KB', date: '10月22日', dir: '对方发送', icon: 'description' }
+        ],
+        threads: [
+          { subject: '2026 年 11 月个人工作区订阅发票已开具', time: '11月22日', snippet: '本月账单金额 ¥68.00 已完成自动续费，电子发票 PDF 可直接下载保存...' }
+        ]
+      }
+    ];
+
+    let activeContactId = 'c-1';
+    let currentGroup = 'all';
+    let currentTab = 'attachments';
+    let searchQuery = '';
+
+    function getFilteredContacts() {
+      return CONTACTS.filter(c => {
+        if (currentGroup === 'starred' && !c.starred) return false;
+        if (currentGroup === 'team' && c.group !== 'team') return false;
+        if (currentGroup === 'partner' && c.group !== 'partner') return false;
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toLowerCase();
+          return (
+            c.name.toLowerCase().includes(q) ||
+            c.email.toLowerCase().includes(q) ||
+            c.attachments.some(a => a.name.toLowerCase().includes(q))
+          );
+        }
+        return true;
+      });
+    }
+
+    function renderContactList() {
+      const list = getFilteredContacts();
+      document.getElementById('contact-count').textContent = `${list.length} 位常用联系人`;
+
+      const ul = document.getElementById('contact-list');
+      ul.innerHTML = list.map(c => {
+        const isActive = c.id === activeContactId;
+        const avatar = c.avatarImg
+          ? `<div class="w-11 h-11 rounded-full overflow-hidden bg-light-surface-container shrink-0"><img src="${c.avatarImg}" alt="${c.name}" class="w-full h-full object-cover" /></div>`
+          : `<div class="w-11 h-11 rounded-full bg-light-secondary-container text-light-on-secondary-container flex items-center justify-center shrink-0"><span class="font-label text-label-lg">${c.initials}</span></div>`;
+
+        return `
+          <li
+            role="option"
+            aria-selected="${isActive}"
+            data-id="${c.id}"
+            class="contact-row flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg cursor-pointer transition-colors duration-state-change ${
+              isActive
+                ? 'bg-light-surface-container-lowest shadow-[0_4px_16px_-4px_rgba(35,25,20,0.06)]'
+                : 'hover:bg-light-surface-container-low'
+            }"
+          >
+            <div class="flex items-center gap-gutter-md min-w-0">
+              ${avatar}
+              <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-gutter-xs">
+                  <span class="font-title text-title-md text-light-on-surface truncate">${c.name}</span>
+                  ${c.starred ? '<span class="material-symbols-outlined text-body-sm text-light-primary" style="font-variation-settings: \'FILL\' 1;" aria-hidden="true">star</span>' : ''}
+                </div>
+                <span class="font-body text-body-sm text-light-on-surface-variant truncate">${c.role}</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col items-end shrink-0">
+              <span class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums">${c.attachments.length} 个附件</span>
+              <span class="font-label text-label-sm text-light-on-surface-variant tabular-nums">${c.lastActive}</span>
+            </div>
+          </li>
+        `;
+      }).join('');
+    }
+
+    function renderDetail() {
+      const c = CONTACTS.find(item => item.id === activeContactId) || CONTACTS[0];
+      if (!c) return;
+
+      const avatarSlot = document.getElementById('detail-avatar');
+      avatarSlot.innerHTML = c.avatarImg
+        ? `<img src="${c.avatarImg}" alt="${c.name}" class="w-full h-full object-cover" />`
+        : `<div class="w-full h-full bg-light-secondary-container text-light-on-secondary-container flex items-center justify-center"><span class="font-headline text-headline-md">${c.initials}</span></div>`;
+
+      document.getElementById('detail-name').textContent = c.name;
+      document.getElementById('detail-group-badge').textContent = c.groupLabel;
+      document.getElementById('detail-role').textContent = `${c.role} · ${c.email}`;
+      document.getElementById('detail-last-sync').textContent = `最近往来：${c.lastActive}`;
+      document.getElementById('tab-att-count').textContent = c.attachments.length;
+      document.getElementById('tab-thread-count').textContent = c.threads.length;
+
+      const starIcon = document.getElementById('detail-star-icon');
+      const starBtn = document.getElementById('detail-star-btn');
+      starIcon.style.fontVariationSettings = c.starred ? "'FILL' 1" : "'FILL' 0";
+      starBtn.classList.toggle('text-light-primary', c.starred);
+      starBtn.classList.toggle('text-light-on-surface-variant', !c.starred);
+
+      const attPanel = document.getElementById('panel-attachments');
+      attPanel.innerHTML = c.attachments.map(att => `
+        <div class="group flex items-center justify-between gap-gutter-md p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center gap-gutter-md min-w-0">
+            <span class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-light-surface-container-lowest text-light-primary shrink-0">
+              <span class="material-symbols-outlined text-title-lg" aria-hidden="true">${att.icon}</span>
+            </span>
+            <div class="flex flex-col min-w-0">
+              <span class="font-title text-title-md text-light-on-surface truncate">${att.name}</span>
+              <div class="flex items-center gap-gutter-sm font-body text-body-sm text-light-on-surface-variant">
+                <span>${att.dir}</span>
+                <span aria-hidden="true">·</span>
+                <span class="font-mono text-mono-sm tabular-nums">${att.size}</span>
+                <span aria-hidden="true">·</span>
+                <span class="tabular-nums">${att.date}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-gutter-xs shrink-0">
+            <a href="../main-inbox/MainInboxAndReader.html" title="定位原邮件" aria-label="定位原邮件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">open_in_new</span>
+            </a>
+            <button type="button" title="下载附件" aria-label="下载附件" class="w-8 h-8 rounded-full inline-flex items-center justify-center text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface transition-colors duration-state-change">
+              <span class="material-symbols-outlined text-title-md" aria-hidden="true">download</span>
+            </button>
+          </div>
+        </div>
+      `).join('');
+
+      const threadPanel = document.getElementById('panel-threads');
+      threadPanel.innerHTML = c.threads.map(t => `
+        <a href="../main-inbox/MainInboxAndReader.html" class="flex flex-col gap-gutter-xs p-gutter-md rounded-lg bg-light-surface-container-low/70 hover:bg-light-surface-container-low transition-colors duration-state-change">
+          <div class="flex items-center justify-between gap-gutter-md">
+            <span class="font-title text-title-md text-light-on-surface truncate">${t.subject}</span>
+            <time class="font-mono text-mono-sm text-light-on-surface-variant tabular-nums shrink-0">${t.time}</time>
+          </div>
+          <p class="font-body text-body-sm text-light-on-surface-variant truncate">${t.snippet}</p>
+        </a>
+      `).join('');
+    }
+
+    document.getElementById('contact-list').addEventListener('click', (e) => {
+      const row = e.target.closest('.contact-row');
+      if (row) {
+        activeContactId = row.dataset.id;
+        renderContactList();
+        renderDetail();
+      }
+    });
+
+    document.querySelectorAll('.group-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentGroup = btn.dataset.group;
+        document.querySelectorAll('.group-chip').forEach(b => {
+          const active = b === btn;
+          b.setAttribute('aria-pressed', String(active));
+          b.className = active
+            ? 'group-chip inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-highest text-light-on-surface font-label text-label-md transition-colors duration-state-change'
+            : 'group-chip inline-flex items-center px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-low text-light-on-surface-variant hover:bg-light-surface-container font-label text-label-md transition-colors duration-state-change';
+        });
+        renderContactList();
+      });
+    });
+
+    document.getElementById('tab-attachments').addEventListener('click', () => {
+      currentTab = 'attachments';
+      document.getElementById('panel-attachments').classList.remove('hidden');
+      document.getElementById('panel-attachments').classList.add('flex');
+      document.getElementById('panel-threads').classList.add('hidden');
+      document.getElementById('tab-attachments').className = 'detail-tab px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-highest text-light-on-surface font-label text-label-md transition-colors duration-state-change';
+      document.getElementById('tab-threads').className = 'detail-tab px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change';
+    });
+
+    document.getElementById('tab-threads').addEventListener('click', () => {
+      currentTab = 'threads';
+      document.getElementById('panel-threads').classList.remove('hidden');
+      document.getElementById('panel-threads').classList.add('flex');
+      document.getElementById('panel-attachments').classList.add('hidden');
+      document.getElementById('tab-threads').className = 'detail-tab px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-highest text-light-on-surface font-label text-label-md transition-colors duration-state-change';
+      document.getElementById('tab-attachments').className = 'detail-tab px-gutter-md py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container-low font-label text-label-md transition-colors duration-state-change';
+    });
+
+    document.getElementById('detail-star-btn').addEventListener('click', () => {
+      const c = CONTACTS.find(item => item.id === activeContactId);
+      if (c) {
+        c.starred = !c.starred;
+        renderContactList();
+        renderDetail();
+      }
+    });
+
+    document.getElementById('contact-search-input').addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      renderContactList();
+    });
+
+    renderContactList();
+    renderDetail();
+  </script>
+
+
+</body></html>
