@@ -260,6 +260,219 @@ pub fn refresh_imap_folders_blocking(
     res
 }
 
+/// Creates a new mailbox folder on the remote IMAP server (with Modified UTF-7 encoding for Chinese names)
+/// and refreshes the local SQLite folder registry.
+pub fn create_imap_folder_blocking(
+    db_mutex: &Mutex<Database>,
+    rec: &AccountSecretRecord,
+    folder_name: &str,
+) -> Result<ImapFolderItem, String> {
+    let clean_name = folder_name.trim();
+    if clean_name.is_empty() {
+        return Err("文件夹名称不能为空".into());
+    }
+    if clean_name.contains('/') || clean_name.contains('\\') {
+        return Err("文件夹名称不能包含斜杠 / 或 \\".into());
+    }
+
+    let host = rec.account.imap_host.as_deref().unwrap_or("").trim();
+    let port = rec.account.imap_port.unwrap_or(993);
+    if host.is_empty() || rec.auth_code.is_empty() {
+        return Err("请先配置并连接邮箱账户后再创建文件夹".into());
+    }
+
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|e| format!("TLS 初始化失败: {}", e))?;
+    let client = imap::connect((host, port), host, &tls)
+        .map_err(|e| format!("连接 {} 失败: {}", host, e))?;
+    let mut session = client
+        .login(&rec.account.email, &rec.auth_code)
+        .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
+
+    // Inspect existing server hierarchy to match QQ/Exmail ("其他文件夹/") or INBOX prefix conventions
+    let mut delimiter = "/".to_string();
+    let mut uses_qq_root = false;
+    let mut uses_inbox_prefix = false;
+    if let Ok(mailboxes) = session.list(Some(""), Some("*")) {
+        for mbx in mailboxes.iter() {
+            if let Some(d) = mbx.delimiter() {
+                if !d.is_empty() {
+                    delimiter = d.to_string();
+                }
+            }
+            let decoded = decode_imap_utf7(mbx.name());
+            if decoded.starts_with("其他文件夹/") || decoded.starts_with("其他文件夹.") {
+                uses_qq_root = true;
+            } else if decoded.starts_with("INBOX.") || decoded.starts_with("INBOX/") {
+                uses_inbox_prefix = true;
+            }
+        }
+    }
+
+    let encoded_leaf = encode_imap_utf7(clean_name);
+    let mut candidates: Vec<String> = Vec::new();
+    if uses_qq_root {
+        candidates.push(format!("{}{}{}", encode_imap_utf7("其他文件夹"), delimiter, encoded_leaf));
+        candidates.push(encoded_leaf.clone());
+    } else if uses_inbox_prefix {
+        candidates.push(format!("INBOX{}{}", delimiter, encoded_leaf));
+        candidates.push(encoded_leaf.clone());
+    } else {
+        candidates.push(encoded_leaf.clone());
+        candidates.push(format!("{}{}{}", encode_imap_utf7("其他文件夹"), delimiter, encoded_leaf));
+        candidates.push(format!("INBOX{}{}", delimiter, encoded_leaf));
+    }
+
+    let mut created_raw: Option<String> = None;
+    let mut last_err = String::new();
+    for cand in &candidates {
+        match session.create(cand) {
+            Ok(()) => {
+                created_raw = Some(cand.clone());
+                break;
+            }
+            Err(e) => {
+                last_err = format!("{}", e);
+            }
+        }
+    }
+
+    let raw_name = match created_raw {
+        Some(r) => r,
+        None => {
+            let _ = session.logout();
+            return Err(format!("服务器创建文件夹失败：{}", last_err));
+        }
+    };
+
+    let discovered = discover_imap_folders_in_session(&mut session, db_mutex, rec).unwrap_or_default();
+    let _ = session.logout();
+
+    if let Some(found) = discovered
+        .into_iter()
+        .find(|f| f.raw_name == raw_name || f.display_name == clean_name)
+    {
+        return Ok(found);
+    }
+
+    // Fallback: insert immediately if remote LIST lags briefly behind CREATE
+    let folder_id = format!("{}:{}", rec.account.id, raw_name);
+    let folder_key = format!("imap:{}:{}", rec.account.id, raw_name);
+    let fallback = ImapFolderItem {
+        id: folder_id,
+        account_id: rec.account.id.clone(),
+        account_email: rec.account.email.clone(),
+        raw_name,
+        display_name: clean_name.to_string(),
+        folder_key,
+        delimiter,
+        kind: "custom".into(),
+        last_uid: 0,
+        synced_at: None,
+        email_count: 0,
+        unread_count: 0,
+    };
+    if let Ok(db) = db_mutex.lock() {
+        let _ = db.upsert_single_imap_folder(&fallback);
+    }
+    Ok(fallback)
+}
+
+/// Moves an email between IMAP mailboxes using RFC 3501 UID COPY + STORE \Deleted + EXPUNGE.
+pub fn move_email_to_folder_blocking(
+    rec: &AccountSecretRecord,
+    source_mailbox: &str,
+    uid: u32,
+    target_mailbox: &str,
+) -> Result<(), String> {
+    if source_mailbox.eq_ignore_ascii_case(target_mailbox) {
+        return Ok(());
+    }
+    let host = rec.account.imap_host.as_deref().unwrap_or("").trim();
+    let port = rec.account.imap_port.unwrap_or(993);
+    if host.is_empty() || rec.auth_code.is_empty() {
+        return Ok(());
+    }
+
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|e| format!("TLS 初始化失败: {}", e))?;
+    let client = imap::connect((host, port), host, &tls)
+        .map_err(|e| format!("连接 {} 失败: {}", host, e))?;
+    let mut session = client
+        .login(&rec.account.email, &rec.auth_code)
+        .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
+
+    session
+        .select(source_mailbox)
+        .map_err(|e| format!("打开源文件夹失败: {}", e))?;
+
+    let uid_str = uid.to_string();
+    session
+        .uid_copy(&uid_str, target_mailbox)
+        .map_err(|e| format!("复制邮件到目标文件夹失败: {}", e))?;
+    let _ = session.uid_store(&uid_str, "+FLAGS.SILENT (\\Deleted)");
+    let _ = session.expunge();
+    let _ = session.logout();
+    Ok(())
+}
+
+/// Moves multiple emails into a target IMAP folder in a single TLS IMAP session, grouped by source mailbox.
+pub fn move_emails_to_folder_batch_blocking(
+    rec: &AccountSecretRecord,
+    items: &[(u32, String)],
+    target_mailbox: &str,
+) -> Result<(), String> {
+    if items.is_empty() {
+        return Ok(());
+    }
+    let host = rec.account.imap_host.as_deref().unwrap_or("").trim();
+    let port = rec.account.imap_port.unwrap_or(993);
+    if host.is_empty() || rec.auth_code.is_empty() {
+        return Ok(());
+    }
+
+    let mut by_source: std::collections::HashMap<&str, Vec<u32>> = std::collections::HashMap::new();
+    for (uid, src) in items {
+        if !src.eq_ignore_ascii_case(target_mailbox) {
+            by_source.entry(src.as_str()).or_default().push(*uid);
+        }
+    }
+    if by_source.is_empty() {
+        return Ok(());
+    }
+
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|e| format!("TLS 初始化失败: {}", e))?;
+    let client = imap::connect((host, port), host, &tls)
+        .map_err(|e| format!("连接 {} 失败: {}", host, e))?;
+    let mut session = client
+        .login(&rec.account.email, &rec.auth_code)
+        .map_err(|(e, _)| format!("账户 {} IMAP 登录失败: {}", rec.account.email, e))?;
+
+    for (src_mbx, uids) in by_source {
+        if session.select(src_mbx).is_err() {
+            continue;
+        }
+        for chunk in uids.chunks(50) {
+            let uid_set = chunk
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            if session.uid_copy(&uid_set, target_mailbox).is_ok() {
+                let _ = session.uid_store(&uid_set, "+FLAGS.SILENT (\\Deleted)");
+            }
+        }
+        let _ = session.expunge();
+    }
+
+    let _ = session.logout();
+    Ok(())
+}
+
 /// Silently syncs one user-created or remote IMAP folder (latest 30 on first open, incremental afterwards).
 pub fn sync_imap_folder_blocking(
     db_mutex: &Mutex<Database>,
@@ -508,6 +721,7 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
     let mut fetched_count = 0usize;
     let mut max_uid = initial_max_uid;
     let mut notifications = Vec::new();
+    let mut pending_imap_moves: Vec<(u32, String)> = Vec::new();
     let parser = MessageParser::default();
 
     for fetch in fetches.iter() {
@@ -729,6 +943,16 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
             continue;
         }
 
+        // If a filter rule moved this incoming INBOX email into a remote IMAP folder, queue server-side move
+        if folder_key == "inbox" && mail.folder.starts_with("imap:") {
+            if let Ok(Some(target_folder)) = db.get_imap_folder(&mail.folder) {
+                if target_folder.account_id == rec.account.id {
+                    pending_imap_moves.push((uid, target_folder.raw_name));
+                    mail.remote_uid = None;
+                }
+            }
+        }
+
         db.insert_email(&mail, msg_id.as_deref())?;
         let _ = db.upsert_directory_contacts_batch(&harvested_contacts);
         fetched_count += 1;
@@ -738,6 +962,20 @@ fn fetch_and_store_uids<T: std::io::Read + std::io::Write>(
                 sender: mail.sender,
                 subject: mail.subject,
             });
+        }
+    }
+
+    if !pending_imap_moves.is_empty() {
+        let mut expunge_needed = false;
+        for (move_uid, target_raw) in pending_imap_moves {
+            let uid_str = move_uid.to_string();
+            if session.uid_copy(&uid_str, &target_raw).is_ok() {
+                let _ = session.uid_store(&uid_str, "+FLAGS.SILENT (\\Deleted)");
+                expunge_needed = true;
+            }
+        }
+        if expunge_needed {
+            let _ = session.expunge();
         }
     }
 
@@ -829,7 +1067,15 @@ pub fn send_email_blocking(
             if p.exists() && p.is_file() {
                 fs::read(p).map_err(|e| format!("读取本地附件失败: {}", e))?
             } else {
-                Vec::new()
+                let cached_path = db_mutex
+                    .lock()
+                    .ok()
+                    .and_then(|db| db.safe_cache_path(path_str).ok());
+                if let Some(cp) = cached_path.filter(|cp| cp.exists() && cp.is_file()) {
+                    fs::read(cp).map_err(|e| format!("读取缓存附件失败: {}", e))?
+                } else {
+                    Vec::new()
+                }
             }
         } else {
             Vec::new()
@@ -1070,6 +1316,45 @@ pub fn decode_imap_utf7(input: &str) -> String {
         out.push(ch);
         i += ch.len_utf8();
     }
+    out
+}
+
+/// Encodes a Unicode mailbox name into RFC 3501 Modified UTF-7 (e.g. `测试` -> `&bUuL1Q-`).
+pub fn encode_imap_utf7(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() * 2);
+    let mut non_ascii: Vec<u16> = Vec::new();
+
+    let flush_non_ascii = |buf: &mut Vec<u16>, dest: &mut String| {
+        if buf.is_empty() {
+            return;
+        }
+        let mut bytes = Vec::with_capacity(buf.len() * 2);
+        for unit in buf.iter() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        let b64 = B64_NO_PAD.encode(&bytes).replace('/', ",");
+        dest.push('&');
+        dest.push_str(&b64);
+        dest.push('-');
+        buf.clear();
+    };
+
+    for ch in input.chars() {
+        let code = ch as u32;
+        if (0x20..=0x7E).contains(&code) {
+            flush_non_ascii(&mut non_ascii, &mut out);
+            if ch == '&' {
+                out.push_str("&-");
+            } else {
+                out.push(ch);
+            }
+        } else {
+            let mut units = [0u16; 2];
+            let encoded = ch.encode_utf16(&mut units);
+            non_ascii.extend_from_slice(encoded);
+        }
+    }
+    flush_non_ascii(&mut non_ascii, &mut out);
     out
 }
 

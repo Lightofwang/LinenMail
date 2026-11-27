@@ -1,72 +1,193 @@
-import { FALLBACK_TRANSLATIONS } from '../data/initialData';
 import { mailService } from '../services/mailService';
-import { EmailItem, LlmProfile } from '../types/mail';
+import {
+  EmailItem,
+  EmailTranslationRecord,
+  LlmProfile,
+  TranslationEngine,
+  TranslationTargetLang,
+  TranslationTargetPreference,
+} from '../types/mail';
 
-export interface TranslationResult {
-  subject: string;
-  paragraphs: string[];
-  model: string;
+export interface TranslationLangOption {
+  id: TranslationTargetLang;
+  label: string;
+  promptName: string;
 }
 
-export async function translateEmailWithAi(
-  email: EmailItem,
-  cfg: LlmProfile
-): Promise<TranslationResult> {
-  const modelName = cfg.model || 'gpt-4o-mini';
+export const TRANSLATION_LANG_OPTIONS: TranslationLangOption[] = [
+  { id: 'zh-CN', label: '简体中文', promptName: 'natural, fluent Simplified Chinese (简体中文)' },
+  { id: 'en', label: 'English', promptName: 'natural, professional English' },
+  { id: 'ja', label: '日本語', promptName: 'natural, polite Japanese (日本語)' },
+  { id: 'ko', label: '한국어', promptName: 'natural, polite Korean (한국어)' },
+];
 
-  if ((cfg.apiKey || cfg.hasApiKey) && cfg.baseUrl) {
-    try {
-      const content = await mailService.invokeLlmChat({
-        profileId: cfg.id,
-        baseUrl: cfg.baseUrl,
-        apiKey: cfg.apiKey,
-        model: modelName,
-        temperature: cfg.temperature ?? 0.3,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Translate the following email subject and body into natural English. Return ONLY valid JSON: {"subject":"...","paragraphs":["..."]}',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              subject: email.subject,
-              paragraphs: [...email.paragraphs, email.signoff].filter(Boolean),
-            }),
-          },
-        ],
-      });
-      const cleaned = content.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-      const parsed = JSON.parse(cleaned);
-      if (parsed.subject && Array.isArray(parsed.paragraphs)) {
-        return {
-          subject: parsed.subject,
-          paragraphs: parsed.paragraphs,
-          model: modelName,
-        };
-      }
-    } catch {
-      // Fallback gracefully on network/JSON errors
+export function getLangLabel(lang: TranslationTargetLang | string): string {
+  return TRANSLATION_LANG_OPTIONS.find((l) => l.id === lang)?.label || lang;
+}
+
+export function detectDefaultTargetLang(
+  email: EmailItem,
+  preference?: TranslationTargetPreference
+): TranslationTargetLang {
+  if (preference && preference !== 'auto') {
+    return preference;
+  }
+  const sample = `${email.subject} ${email.paragraphs.slice(0, 5).join(' ')}`;
+  const cjkCount = (sample.match(/[\u4e00-\u9fff]/g) || []).length;
+  const nonSpaceCount = sample.replace(/\s+/g, '').length;
+  if (nonSpaceCount > 0 && cjkCount / nonSpaceCount >= 0.22) {
+    return 'en';
+  }
+  return 'zh-CN';
+}
+
+export function isLlmProfileConfigured(cfg?: LlmProfile | null): boolean {
+  if (!cfg || !cfg.baseUrl?.trim()) return false;
+  if (cfg.apiKey?.trim() || cfg.hasApiKey) return true;
+  // Local Ollama / localhost gateways do not require an API key
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(cfg.baseUrl.trim());
+}
+
+export class TranslationError extends Error {
+  code: 'NO_AI_KEY' | 'TRANSLATE_FAILED';
+  constructor(message: string, code: 'NO_AI_KEY' | 'TRANSLATE_FAILED' = 'TRANSLATE_FAILED') {
+    super(message);
+    this.name = 'TranslationError';
+    this.code = code;
+  }
+}
+
+export async function getCachedEmailTranslation(
+  emailId: string,
+  targetLang?: TranslationTargetLang,
+  engine?: TranslationEngine
+): Promise<EmailTranslationRecord | null> {
+  return mailService.getEmailTranslation(emailId, targetLang, engine);
+}
+
+export async function translateEmailUnified(params: {
+  email: EmailItem;
+  targetLang: TranslationTargetLang;
+  engine: TranslationEngine;
+  llmProfile?: LlmProfile | null;
+  forceRefresh?: boolean;
+}): Promise<{ record: EmailTranslationRecord; fromCache: boolean }> {
+  const { email, targetLang, engine, llmProfile, forceRefresh = false } = params;
+
+  // 1. Check local cache first unless forceRefresh is requested
+  if (!forceRefresh) {
+    const cached = await mailService.getEmailTranslation(email.id, targetLang, engine);
+    if (cached && cached.paragraphs.length > 0) {
+      return { record: cached, fromCache: true };
     }
   }
 
-  const fb = FALLBACK_TRANSLATIONS[email.id];
-  if (fb) {
-    return {
-      subject: fb.subject,
-      paragraphs: fb.paragraphs,
-      model: modelName,
-    };
+  const sourceParagraphs = [...email.paragraphs, email.signoff]
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  // 2. Zero-config free translation channel (Rust backend: Microsoft Edge -> Google fallback)
+  if (engine === 'free') {
+    try {
+      const record = await mailService.translateEmailFree({
+        emailId: email.id,
+        targetLang,
+        subject: email.subject,
+        paragraphs: sourceParagraphs,
+        forceRefresh,
+      });
+      return { record, fromCache: false };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new TranslationError(msg, 'TRANSLATE_FAILED');
+    }
   }
 
-  return {
-    subject: `[EN] ${email.subject}`,
-    paragraphs: [...email.paragraphs, email.signoff]
-      .filter(Boolean)
-      .map((p) => `[Translated via ${modelName}] ${p}`),
-    model: modelName,
-  };
+  // 3. Custom OpenAI-compatible AI LLM channel
+  if (!llmProfile || !isLlmProfileConfigured(llmProfile)) {
+    throw new TranslationError(
+      '尚未配置可用的自定义 AI 大模型密钥，请前往「系统设置 → AI 大模型配置」填写 API Key，或先切换至「免费通道」。',
+      'NO_AI_KEY'
+    );
+  }
+
+  const modelName = llmProfile.model || 'gpt-4o-mini';
+  const langOpt =
+    TRANSLATION_LANG_OPTIONS.find((l) => l.id === targetLang) || TRANSLATION_LANG_OPTIONS[0];
+
+  try {
+    const content = await mailService.invokeLlmChat({
+      profileId: llmProfile.id,
+      baseUrl: llmProfile.baseUrl,
+      apiKey: llmProfile.apiKey,
+      model: modelName,
+      temperature: llmProfile.temperature ?? 0.3,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a professional email translator. Translate the given email subject and paragraphs into ${langOpt.promptName}. Preserve business tone, names, URLs, numbers, and exact paragraph order. Return ONLY valid JSON without markdown code fences: {"subject":"...","paragraphs":["..."]}`,
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            subject: email.subject,
+            paragraphs: sourceParagraphs,
+          }),
+        },
+      ],
+    });
+
+    const cleaned = content
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+
+    let translatedSubject = email.subject;
+    let translatedParagraphs: string[] = [];
+
+    try {
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleaned);
+      if (typeof parsed.subject === 'string' && parsed.subject.trim()) {
+        translatedSubject = parsed.subject.trim();
+      }
+      if (Array.isArray(parsed.paragraphs)) {
+        translatedParagraphs = parsed.paragraphs
+          .map((p: unknown) => (typeof p === 'string' ? p.trim() : ''))
+          .filter(Boolean);
+      }
+    } catch {
+      // Fallback for smaller local models that reply in plain text instead of strict JSON
+      const lines = cleaned
+        .split(/\n+/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (lines.length > 0) {
+        translatedParagraphs = lines;
+      }
+    }
+
+    if (translatedParagraphs.length === 0) {
+      throw new Error('AI 返回的译文内容为空');
+    }
+
+    const record: EmailTranslationRecord = {
+      emailId: email.id,
+      targetLang,
+      engine: 'ai',
+      subject: translatedSubject,
+      paragraphs: translatedParagraphs,
+      providerLabel: `AI · ${modelName}`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await mailService.saveEmailTranslation(record);
+    return { record, fromCache: false };
+  } catch (err) {
+    if (err instanceof TranslationError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new TranslationError(`AI 翻译调用失败：${msg}`, 'TRANSLATE_FAILED');
+  }
 }
 
 export async function polishEmailDraftWithAi(
@@ -75,7 +196,7 @@ export async function polishEmailDraftWithAi(
 ): Promise<{ text: string; model: string }> {
   const modelName = cfg.model || 'gpt-4o-mini';
 
-  if ((cfg.apiKey || cfg.hasApiKey) && cfg.baseUrl) {
+  if (isLlmProfileConfigured(cfg)) {
     try {
       const polished = (
         await mailService.invokeLlmChat({

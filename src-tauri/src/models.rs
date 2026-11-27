@@ -165,6 +165,10 @@ pub struct FilterRuleItem {
     #[serde(default)]
     pub action_tag: Option<String>,
     #[serde(default)]
+    pub action_folder: Option<String>,
+    #[serde(default)]
+    pub action_folder_name: Option<String>,
+    #[serde(default)]
     pub action_archive: Option<bool>,
     #[serde(default)]
     pub action_mark_read: Option<bool>,
@@ -220,10 +224,22 @@ pub struct SystemSettingsState {
     pub cache_bytes: i64,
     #[serde(default)]
     pub db_size_bytes: i64,
+    #[serde(default = "default_translation_engine")]
+    pub translation_engine: String,
+    #[serde(default = "default_translation_target_lang")]
+    pub translation_target_lang: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_translation_engine() -> String {
+    "free".to_string()
+}
+
+fn default_translation_target_lang() -> String {
+    "auto".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -395,4 +411,28 @@ pub struct LlmChatRequest {
     pub model: Option<String>,
     pub temperature: Option<f32>,
     pub messages: Vec<LlmChatMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmailTranslationRecord {
+    pub email_id: String,
+    pub target_lang: String,
+    pub engine: String,
+    pub subject: String,
+    pub paragraphs: Vec<String>,
+    pub provider_label: String,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FreeTranslateRequest {
+    pub email_id: String,
+    pub target_lang: String,
+    pub subject: String,
+    pub paragraphs: Vec<String>,
+    #[serde(default)]
+    pub force_refresh: bool,
 }

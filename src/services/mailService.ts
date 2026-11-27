@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import {
   AccountConfigInput,
   CacheStats,
@@ -13,6 +14,7 @@ import {
   DraftItem,
   EmailAttachment,
   EmailItem,
+  EmailTranslationRecord,
   FilterRuleItem,
   ImapFolderItem,
   LlmProfile,
@@ -24,6 +26,8 @@ import {
   SystemSettingsState,
   TestConnectionInput,
   TestConnectionResult,
+  TranslationEngine,
+  TranslationTargetLang,
   UserProfile,
   WorkspaceSnapshot,
 } from '../types/mail';
@@ -166,28 +170,49 @@ export function isSafeExternalUrl(raw: string): boolean {
 }
 
 export function matchesFilterRule(mail: EmailItem, rule: FilterRuleItem): boolean {
-  if (rule.hasAttachment && !mail.attachment && (!mail.attachments || mail.attachments.length === 0)) {
+  const requireAtt = Boolean(rule.hasAttachment);
+  if (requireAtt && !mail.attachment && (!mail.attachments || mail.attachments.length === 0)) {
     return false;
   }
-  if (!rule.conditions || rule.conditions.length === 0) {
-    return false;
+  const activeConds = (rule.conditions || []).filter((c) => c.value.trim().length > 0);
+  if (activeConds.length === 0) {
+    return requireAtt;
   }
   const body = mail.paragraphs.join('\n').toLowerCase();
+  const senderEmailLower = mail.email.trim().toLowerCase();
+  const senderNameLower = mail.sender.trim().toLowerCase();
+  const recipientLower = (mail.recipient || '').toLowerCase();
+
   const evalCond = (c: { field: string; op: string; value: string }) => {
     const needle = c.value.trim().toLowerCase();
     if (!needle) return false;
     let hay = mail.subject.toLowerCase();
-    if (c.field === '发件人') hay = `${mail.sender} ${mail.email}`.toLowerCase();
-    else if (c.field === '收件人') hay = (mail.recipient || '').toLowerCase();
+    if (c.field === '发件人') hay = `${senderNameLower} ${senderEmailLower}`;
+    else if (c.field === '收件人') hay = recipientLower;
     else if (c.field === '正文') hay = body;
     if (c.op === '包含') return hay.includes(needle);
     if (c.op === '不包含') return !hay.includes(needle);
-    if (c.op === '完全等于') return hay.trim() === needle;
+    if (c.op === '完全等于') {
+      if (c.field === '发件人') {
+        return (
+          senderEmailLower === needle ||
+          senderNameLower === needle ||
+          hay.trim() === needle
+        );
+      }
+      if (c.field === '收件人') {
+        return (
+          recipientLower.trim() === needle ||
+          recipientLower.split(/[,;]/).some((part) => part.trim() === needle)
+        );
+      }
+      return hay.trim() === needle;
+    }
     return hay.includes(needle);
   };
   return rule.logic === 'OR'
-    ? rule.conditions.some(evalCond)
-    : rule.conditions.every(evalCond);
+    ? activeConds.some(evalCond)
+    : activeConds.every(evalCond);
 }
 
 function guessAttachmentIcon(name: string): string {
@@ -533,6 +558,44 @@ export const mailService = {
     return 0;
   },
 
+  async createImapFolder(folderName: string, accountId?: string): Promise<ImapFolderItem> {
+    const clean = folderName.trim();
+    if (!clean) {
+      throw new Error('文件夹名称不能为空');
+    }
+    if (clean.includes('/') || clean.includes('\\')) {
+      throw new Error('文件夹名称不能包含斜杠 / 或 \\');
+    }
+    if (isTauriRuntime()) {
+      return invoke<ImapFolderItem>('create_imap_folder', {
+        folderName: clean,
+        accountId: accountId || null,
+      });
+    }
+    const accId = accountId || 'local';
+    const id = `${accId}:${clean}`;
+    return {
+      id,
+      accountId: accId,
+      accountEmail: '',
+      rawName: clean,
+      displayName: clean,
+      folderKey: `imap:${accId}:${clean}`,
+      delimiter: '/',
+      kind: 'custom',
+      lastUid: 0,
+      syncedAt: null,
+      emailCount: 0,
+      unreadCount: 0,
+    };
+  },
+
+  async moveEmailToFolder(emailId: string, targetFolderKey: string): Promise<void> {
+    if (isTauriRuntime()) {
+      await invoke('move_email_to_folder', { emailId, targetFolderKey });
+    }
+  },
+
   async sendEmail(payload: SendEmailPayload): Promise<EmailItem | null> {
     if (!isTauriRuntime()) return null;
     return invoke<EmailItem>('send_email', { payload });
@@ -580,6 +643,30 @@ export const mailService = {
   async pickAttachmentFiles(): Promise<EmailAttachment[] | null> {
     if (!isTauriRuntime()) return null;
     return invoke<EmailAttachment[]>('pick_attachment_files');
+  },
+
+  async readAttachmentPaths(paths: string[]): Promise<EmailAttachment[]> {
+    if (!isTauriRuntime() || paths.length === 0) return [];
+    return invoke<EmailAttachment[]>('read_attachment_paths', { paths });
+  },
+
+  async subscribeDragDrop(
+    handler: (event: { type: 'enter' | 'over' | 'drop' | 'leave'; paths?: string[] }) => void
+  ): Promise<() => void> {
+    if (!isTauriRuntime()) return () => {};
+    try {
+      const unlisten = await getCurrentWebview().onDragDropEvent((ev) => {
+        const p = ev.payload;
+        if (p.type === 'enter' || p.type === 'drop') {
+          handler({ type: p.type, paths: p.paths });
+        } else if (p.type === 'over' || p.type === 'leave') {
+          handler({ type: p.type });
+        }
+      });
+      return unlisten;
+    } catch {
+      return () => {};
+    }
   },
 
   async downloadAttachment(
@@ -644,9 +731,19 @@ export const mailService = {
     return invoke<number>('save_filter_rule', { rule, applyExisting });
   },
 
+  async runFilterRule(id: string): Promise<number | null> {
+    if (!isTauriRuntime()) return null;
+    return invoke<number>('run_filter_rule', { id });
+  },
+
   async toggleFilterRule(id: string): Promise<void> {
     if (!isTauriRuntime()) return;
     await invoke('toggle_filter_rule', { id });
+  },
+
+  async deleteFilterRule(id: string): Promise<void> {
+    if (!isTauriRuntime()) return;
+    await invoke('delete_filter_rule', { id });
   },
 
   async saveSmartFolder(folder: SmartFolderItem): Promise<void> {
@@ -715,6 +812,118 @@ export const mailService = {
     const content = data.choices?.[0]?.message?.content;
     if (!content) throw new Error('Empty AI response');
     return content;
+  },
+
+  async getEmailTranslation(
+    emailId: string,
+    targetLang?: TranslationTargetLang,
+    engine?: TranslationEngine
+  ): Promise<EmailTranslationRecord | null> {
+    if (isTauriRuntime()) {
+      return invoke<EmailTranslationRecord | null>('get_email_translation', {
+        emailId,
+        targetLang: targetLang ?? null,
+        engine: engine ?? null,
+      });
+    }
+    try {
+      const raw = localStorage.getItem('linenmail_translations_v1');
+      if (!raw) return null;
+      const map = JSON.parse(raw) as Record<string, EmailTranslationRecord>;
+      if (targetLang && engine) {
+        return map[`${emailId}::${targetLang}::${engine}`] || null;
+      }
+      const candidates = Object.values(map)
+        .filter((r) => r.emailId === emailId)
+        .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+      return candidates[0] || null;
+    } catch {
+      return null;
+    }
+  },
+
+  async saveEmailTranslation(record: EmailTranslationRecord): Promise<void> {
+    if (isTauriRuntime()) {
+      await invoke('save_email_translation', { record });
+      return;
+    }
+    try {
+      const raw = localStorage.getItem('linenmail_translations_v1');
+      const map: Record<string, EmailTranslationRecord> = raw ? JSON.parse(raw) : {};
+      map[`${record.emailId}::${record.targetLang}::${record.engine}`] = record;
+      const entries = Object.entries(map);
+      if (entries.length > 120) {
+        entries.sort((a, b) => (b[1].updatedAt || '').localeCompare(a[1].updatedAt || ''));
+        const trimmed = Object.fromEntries(entries.slice(0, 120));
+        localStorage.setItem('linenmail_translations_v1', JSON.stringify(trimmed));
+      } else {
+        localStorage.setItem('linenmail_translations_v1', JSON.stringify(map));
+      }
+    } catch {
+      // Ignore storage quota errors in preview
+    }
+  },
+
+  async translateEmailFree(req: {
+    emailId: string;
+    targetLang: TranslationTargetLang;
+    subject: string;
+    paragraphs: string[];
+    forceRefresh?: boolean;
+  }): Promise<EmailTranslationRecord> {
+    if (isTauriRuntime()) {
+      return invoke<EmailTranslationRecord>('translate_email_free', {
+        req: {
+          emailId: req.emailId,
+          targetLang: req.targetLang,
+          subject: req.subject,
+          paragraphs: req.paragraphs,
+          forceRefresh: Boolean(req.forceRefresh),
+        },
+      });
+    }
+
+    // Web preview fallback: try Google Translate gtx endpoint directly
+    const allTexts = [req.subject, ...req.paragraphs];
+    const sep = '\n<<<LM_P>>>\n';
+    const joined = allTexts.join(sep);
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(
+      req.targetLang
+    )}&dt=t&q=${encodeURIComponent(joined)}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const translatedText = Array.isArray(json?.[0])
+        ? (json[0] as unknown[])
+            .map((seg) => (Array.isArray(seg) && typeof seg[0] === 'string' ? seg[0] : ''))
+            .join('')
+        : '';
+      const parts = translatedText.split('<<<LM_P>>>').map((s) => s.trim());
+      const subject = parts[0] || req.subject;
+      const paragraphs =
+        parts.length === allTexts.length
+          ? parts.slice(1)
+          : translatedText
+              .split(/\n+/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+      const record: EmailTranslationRecord = {
+        emailId: req.emailId,
+        targetLang: req.targetLang,
+        engine: 'free',
+        subject,
+        paragraphs,
+        providerLabel: '免费翻译通道',
+        updatedAt: new Date().toISOString(),
+      };
+      await mailService.saveEmailTranslation(record);
+      return record;
+    } catch {
+      throw new Error(
+        '当前网页预览环境受跨域限制，免费通道无法直连；在 Windows 桌面安装包中将由 Rust 后端直连微软/谷歌翻译通道。'
+      );
+    }
   },
 
   async saveUserProfile(profile: UserProfile): Promise<void> {

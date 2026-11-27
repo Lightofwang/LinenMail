@@ -1,9 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { DraftItem } from '../types/mail';
+import { MailFolderStrip } from '../components/MailFolderStrip';
+import { DraftItem, ImapFolderItem, MailFolder } from '../types/mail';
 
 interface DraftsViewProps {
   drafts: DraftItem[];
   searchQuery: string;
+  activeFolder: MailFolder;
+  inboxUnreadCount: number;
+  imapFolders: ImapFolderItem[];
+  refreshingFolders?: boolean;
+  onSelectFolder: (folder: MailFolder) => void;
+  onSelectDrafts: () => void;
+  onSelectImapFolder: (folder: ImapFolderItem) => void;
+  onRefreshFolders?: () => void;
+  onCreateFolder?: (folderName: string) => Promise<void>;
   onEditDraft: (draft: DraftItem) => void;
   onDeleteDraft: (id: string) => void;
   onNewCompose: () => void;
@@ -12,6 +22,15 @@ interface DraftsViewProps {
 export const DraftsView: React.FC<DraftsViewProps> = ({
   drafts,
   searchQuery,
+  activeFolder,
+  inboxUnreadCount,
+  imapFolders,
+  refreshingFolders = false,
+  onSelectFolder,
+  onSelectDrafts,
+  onSelectImapFolder,
+  onRefreshFolders,
+  onCreateFolder,
   onEditDraft,
   onDeleteDraft,
   onNewCompose,
@@ -40,11 +59,25 @@ export const DraftsView: React.FC<DraftsViewProps> = ({
 
   return (
     <main className="flex-1 min-h-0 flex flex-col lg:flex-row gap-5 overflow-hidden">
-      {/* Left Column: Drafts List */}
+      {/* Left Column: Unified Folder Strip + Drafts List */}
       <section
         aria-label="草稿列表"
         className="w-full lg:w-[340px] xl:w-[420px] 2xl:w-[460px] shrink-0 flex flex-col gap-3 min-h-0 h-full"
       >
+        <MailFolderStrip
+          activeFolder={activeFolder}
+          isDraftsActive={true}
+          inboxUnreadCount={inboxUnreadCount}
+          draftCount={drafts.length}
+          imapFolders={imapFolders}
+          refreshingFolders={refreshingFolders}
+          onSelectFolder={onSelectFolder}
+          onSelectDrafts={onSelectDrafts}
+          onSelectImapFolder={onSelectImapFolder}
+          onRefreshFolders={onRefreshFolders}
+          onCreateFolder={onCreateFolder}
+        />
+
         <div className="shrink-0 flex items-center justify-between px-1">
           <h1 className="font-headline text-headline-lg text-light-on-surface">草稿箱</h1>
           <span className="font-label text-label-md text-light-on-surface-variant tabular-nums">

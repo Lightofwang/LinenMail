@@ -158,6 +158,8 @@ impl Database {
                     conditions_json TEXT,
                     has_attachment INTEGER,
                     action_tag TEXT,
+                    action_folder TEXT,
+                    action_folder_name TEXT,
                     action_archive INTEGER,
                     action_mark_read INTEGER,
                     action_star INTEGER
@@ -225,9 +227,31 @@ impl Database {
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_imap_folders_account ON imap_folders(account_id);
+
+                CREATE TABLE IF NOT EXISTS email_translations (
+                    email_id TEXT NOT NULL,
+                    target_lang TEXT NOT NULL,
+                    engine TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    paragraphs_json TEXT NOT NULL,
+                    provider_label TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (email_id, target_lang, engine)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_email_translations_email ON email_translations(email_id);
                 ",
             )
-            .map_err(|e| format!("数据库表结构迁移失败: {}", e))
+            .map_err(|e| format!("数据库表结构迁移失败: {}", e))?;
+
+        // Idempotent column migrations for existing databases
+        let _ = self
+            .conn
+            .execute("ALTER TABLE filter_rules ADD COLUMN action_folder TEXT", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE filter_rules ADD COLUMN action_folder_name TEXT", []);
+        Ok(())
     }
 
     fn seed_defaults_if_empty(&self) -> Result<(), String> {
@@ -441,12 +465,102 @@ impl Database {
                 desktop_notifications: true,
                 cache_bytes: 0,
                 db_size_bytes: 0,
+                translation_engine: "free".into(),
+                translation_target_lang: "auto".into(),
             });
         let stats = self.get_cache_stats();
         settings.cache_bytes = stats.cache_bytes;
         settings.db_size_bytes = stats.db_size_bytes;
         settings.cache_text = stats.cache_text;
         Ok(settings)
+    }
+
+    pub fn get_email_translation(
+        &self,
+        email_id: &str,
+        target_lang: &str,
+        engine: &str,
+    ) -> Result<Option<EmailTranslationRecord>, String> {
+        self.conn
+            .query_row(
+                "SELECT email_id, target_lang, engine, subject, paragraphs_json, provider_label, updated_at
+                 FROM email_translations
+                 WHERE email_id = ?1 AND target_lang = ?2 AND engine = ?3",
+                params![email_id, target_lang, engine],
+                |row| {
+                    let p_json: String = row.get(4)?;
+                    let paragraphs: Vec<String> =
+                        serde_json::from_str(&p_json).unwrap_or_default();
+                    Ok(EmailTranslationRecord {
+                        email_id: row.get(0)?,
+                        target_lang: row.get(1)?,
+                        engine: row.get(2)?,
+                        subject: row.get(3)?,
+                        paragraphs,
+                        provider_label: row.get(5)?,
+                        updated_at: row.get(6)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| format!("读取本地译文缓存失败: {}", e))
+    }
+
+    pub fn get_latest_email_translation(
+        &self,
+        email_id: &str,
+    ) -> Result<Option<EmailTranslationRecord>, String> {
+        self.conn
+            .query_row(
+                "SELECT email_id, target_lang, engine, subject, paragraphs_json, provider_label, updated_at
+                 FROM email_translations
+                 WHERE email_id = ?1
+                 ORDER BY updated_at DESC
+                 LIMIT 1",
+                params![email_id],
+                |row| {
+                    let p_json: String = row.get(4)?;
+                    let paragraphs: Vec<String> =
+                        serde_json::from_str(&p_json).unwrap_or_default();
+                    Ok(EmailTranslationRecord {
+                        email_id: row.get(0)?,
+                        target_lang: row.get(1)?,
+                        engine: row.get(2)?,
+                        subject: row.get(3)?,
+                        paragraphs,
+                        provider_label: row.get(5)?,
+                        updated_at: row.get(6)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| format!("读取最近译文缓存失败: {}", e))
+    }
+
+    pub fn save_email_translation(&self, rec: &EmailTranslationRecord) -> Result<(), String> {
+        let p_json = serde_json::to_string(&rec.paragraphs).unwrap_or_else(|_| "[]".into());
+        let ts = if rec.updated_at.trim().is_empty() {
+            Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+        } else {
+            rec.updated_at.clone()
+        };
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO email_translations
+                 (email_id, target_lang, engine, subject, paragraphs_json, provider_label, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    rec.email_id,
+                    rec.target_lang,
+                    rec.engine,
+                    rec.subject,
+                    p_json,
+                    rec.provider_label,
+                    ts,
+                ],
+            )
+            .map_err(|e| format!("保存本地译文缓存失败: {}", e))?;
+        Ok(())
     }
 
     pub fn get_cache_stats(&self) -> CacheStats {
@@ -978,6 +1092,21 @@ impl Database {
             .map_err(|e| format!("查询邮件远端索引失败: {}", e))
     }
 
+    pub fn move_email_folder(
+        &self,
+        email_id: &str,
+        target_folder_key: &str,
+        archived: bool,
+    ) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE emails SET folder = ?1, archived = ?2, remote_uid = NULL WHERE id = ?3",
+                params![target_folder_key, if archived { 1 } else { 0 }, email_id],
+            )
+            .map_err(|e| format!("移动邮件到文件夹失败: {}", e))?;
+        Ok(())
+    }
+
     pub fn update_email_flags(
         &self,
         email_id: &str,
@@ -1061,7 +1190,7 @@ impl Database {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, name, condition_text, action_text, hits, enabled, logic, conditions_json, has_attachment, action_tag, action_archive, action_mark_read, action_star
+                "SELECT id, name, condition_text, action_text, hits, enabled, logic, conditions_json, has_attachment, action_tag, action_folder, action_folder_name, action_archive, action_mark_read, action_star
                  FROM filter_rules ORDER BY rowid DESC",
             )
             .map_err(|e| format!("读取过滤规则失败: {}", e))?;
@@ -1082,13 +1211,49 @@ impl Database {
                     conditions,
                     has_attachment: row.get::<_, Option<i64>>(8)?.map(|v| v != 0),
                     action_tag: row.get(9)?,
-                    action_archive: row.get::<_, Option<i64>>(10)?.map(|v| v != 0),
-                    action_mark_read: row.get::<_, Option<i64>>(11)?.map(|v| v != 0),
-                    action_star: row.get::<_, Option<i64>>(12)?.map(|v| v != 0),
+                    action_folder: row.get(10)?,
+                    action_folder_name: row.get(11)?,
+                    action_archive: row.get::<_, Option<i64>>(12)?.map(|v| v != 0),
+                    action_mark_read: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
+                    action_star: row.get::<_, Option<i64>>(14)?.map(|v| v != 0),
                 })
             })
             .map_err(|e| format!("解析过滤规则失败: {}", e))?;
         Ok(rows.flatten().collect())
+    }
+
+    pub fn get_filter_rule(&self, id: &str) -> Result<Option<FilterRuleItem>, String> {
+        self.conn
+            .query_row(
+                "SELECT id, name, condition_text, action_text, hits, enabled, logic, conditions_json, has_attachment, action_tag, action_folder, action_folder_name, action_archive, action_mark_read, action_star
+                 FROM filter_rules WHERE id = ?1",
+                params![id],
+                |row| {
+                    let c_json: Option<String> = row.get(7)?;
+                    let conditions = c_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<FilterCondition>>(s).ok());
+                    Ok(FilterRuleItem {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        condition: row.get(2)?,
+                        action: row.get(3)?,
+                        hits: row.get(4)?,
+                        enabled: row.get::<_, i64>(5)? != 0,
+                        logic: row.get(6)?,
+                        conditions,
+                        has_attachment: row.get::<_, Option<i64>>(8)?.map(|v| v != 0),
+                        action_tag: row.get(9)?,
+                        action_folder: row.get(10)?,
+                        action_folder_name: row.get(11)?,
+                        action_archive: row.get::<_, Option<i64>>(12)?.map(|v| v != 0),
+                        action_mark_read: row.get::<_, Option<i64>>(13)?.map(|v| v != 0),
+                        action_star: row.get::<_, Option<i64>>(14)?.map(|v| v != 0),
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| format!("读取过滤规则失败: {}", e))
     }
 
     pub fn save_filter_rule(&self, rule: &FilterRuleItem, apply_existing: bool) -> Result<i64, String> {
@@ -1099,8 +1264,8 @@ impl Database {
         self.conn
             .execute(
                 "INSERT OR REPLACE INTO filter_rules
-                 (id, name, condition_text, action_text, hits, enabled, logic, conditions_json, has_attachment, action_tag, action_archive, action_mark_read, action_star)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                 (id, name, condition_text, action_text, hits, enabled, logic, conditions_json, has_attachment, action_tag, action_folder, action_folder_name, action_archive, action_mark_read, action_star)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     rule.id,
                     rule.name,
@@ -1112,6 +1277,8 @@ impl Database {
                     cond_json,
                     rule.has_attachment.map(|b| if b { 1 } else { 0 }),
                     rule.action_tag,
+                    rule.action_folder,
+                    rule.action_folder_name,
                     rule.action_archive.map(|b| if b { 1 } else { 0 }),
                     rule.action_mark_read.map(|b| if b { 1 } else { 0 }),
                     rule.action_star.map(|b| if b { 1 } else { 0 }),
@@ -1135,6 +1302,33 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_filter_rule(&self, id: &str) -> Result<(), String> {
+        self.conn
+            .execute("DELETE FROM filter_rules WHERE id = ?1", params![id])
+            .map_err(|e| format!("删除过滤规则失败: {}", e))?;
+        Ok(())
+    }
+
+    pub fn list_matching_remote_refs_for_rule(
+        &self,
+        rule: &FilterRuleItem,
+        target_folder_key: &str,
+    ) -> Result<Vec<(String, u32, String)>, String> {
+        let emails = self.list_emails()?;
+        let mut refs = Vec::new();
+        for mail in emails {
+            if mail.folder == target_folder_key {
+                continue;
+            }
+            if email_matches_rule(&mail, rule) {
+                if let Ok(Some(r)) = self.get_email_remote_ref(&mail.id) {
+                    refs.push(r);
+                }
+            }
+        }
+        Ok(refs)
+    }
+
     pub fn apply_rule_to_existing_emails(&self, rule: &FilterRuleItem) -> Result<i64, String> {
         let emails = self.list_emails()?;
         let mut matched: i64 = 0;
@@ -1144,6 +1338,12 @@ impl Database {
                 if let Some(ref tag) = rule.action_tag {
                     if !tag.is_empty() {
                         let _ = self.update_email_flags(&mail.id, None, None, None, Some(tag.clone()));
+                    }
+                }
+                if let Some(ref target_folder) = rule.action_folder {
+                    let tf = target_folder.trim();
+                    if !tf.is_empty() && mail.folder != tf {
+                        let _ = self.move_email_folder(&mail.id, tf, tf == "archive");
                     }
                 }
                 if rule.action_archive.unwrap_or(false) {
@@ -1157,12 +1357,10 @@ impl Database {
                 }
             }
         }
-        if matched > 0 {
-            let _ = self.conn.execute(
-                "UPDATE filter_rules SET hits = hits + ?1 WHERE id = ?2",
-                params![matched, rule.id],
-            );
-        }
+        let _ = self.conn.execute(
+            "UPDATE filter_rules SET hits = ?1 WHERE id = ?2",
+            params![matched, rule.id],
+        );
         Ok(matched)
     }
 
@@ -1191,6 +1389,13 @@ impl Database {
                     if let Some(ref tag) = rule.action_tag {
                         if !tag.is_empty() {
                             mail.tag = tag.clone();
+                        }
+                    }
+                    if let Some(ref target_folder) = rule.action_folder {
+                        let tf = target_folder.trim();
+                        if !tf.is_empty() {
+                            mail.folder = tf.to_string();
+                            mail.archived = tf == "archive";
                         }
                     }
                     if rule.action_archive.unwrap_or(false) {
@@ -1953,6 +2158,33 @@ impl Database {
         Ok(())
     }
 
+    pub fn upsert_single_imap_folder(&self, f: &ImapFolderItem) -> Result<(), String> {
+        self.conn
+            .execute(
+                "INSERT INTO imap_folders
+                 (id, account_id, raw_name, display_name, folder_key, delimiter, kind, last_uid, synced_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    folder_key = excluded.folder_key,
+                    delimiter = excluded.delimiter,
+                    kind = excluded.kind",
+                params![
+                    f.id,
+                    f.account_id,
+                    f.raw_name,
+                    f.display_name,
+                    f.folder_key,
+                    f.delimiter,
+                    f.kind,
+                    f.last_uid as i64,
+                    f.synced_at,
+                ],
+            )
+            .map_err(|e| format!("保存新文件夹失败: {}", e))?;
+        Ok(())
+    }
+
     pub fn update_imap_folder_cursor(
         &self,
         folder_id: &str,
@@ -2231,26 +2463,34 @@ pub fn format_full_time(ts_ms: i64) -> String {
 }
 
 pub fn email_matches_rule(mail: &EmailItem, rule: &FilterRuleItem) -> bool {
-    if rule.has_attachment.unwrap_or(false) && mail.attachment.is_none() && mail.attachments.is_empty() {
+    let require_att = rule.has_attachment.unwrap_or(false);
+    if require_att && mail.attachment.is_none() && mail.attachments.is_empty() {
         return false;
     }
-    let Some(ref conds) = rule.conditions else {
-        return false;
-    };
-    if conds.is_empty() {
-        return false;
+    let active_conds: Vec<&FilterCondition> = rule
+        .conditions
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|c| !c.value.trim().is_empty())
+        .collect();
+    if active_conds.is_empty() {
+        return require_att;
     }
     let is_or = rule.logic.as_deref() == Some("OR");
     let body_text = mail.paragraphs.join("\n").to_lowercase();
 
-    let eval_one = |c: &FilterCondition| -> bool {
+    let eval_one = |c: &&FilterCondition| -> bool {
         let needle = c.value.trim().to_lowercase();
         if needle.is_empty() {
             return false;
         }
+        let sender_email_lower = mail.email.trim().to_lowercase();
+        let sender_name_lower = mail.sender.trim().to_lowercase();
+        let recipient_lower = mail.recipient.clone().unwrap_or_default().to_lowercase();
         let haystack = match c.field.as_str() {
-            "发件人" => format!("{} {}", mail.sender, mail.email).to_lowercase(),
-            "收件人" => mail.recipient.clone().unwrap_or_default().to_lowercase(),
+            "发件人" => format!("{} {}", sender_name_lower, sender_email_lower),
+            "收件人" => recipient_lower.clone(),
             "主题" => mail.subject.to_lowercase(),
             "正文" => body_text.clone(),
             _ => mail.subject.to_lowercase(),
@@ -2258,14 +2498,27 @@ pub fn email_matches_rule(mail: &EmailItem, rule: &FilterRuleItem) -> bool {
         match c.op.as_str() {
             "包含" => haystack.contains(&needle),
             "不包含" => !haystack.contains(&needle),
-            "完全等于" => haystack.trim() == needle,
+            "完全等于" => match c.field.as_str() {
+                "发件人" => {
+                    sender_email_lower == needle
+                        || sender_name_lower == needle
+                        || haystack.trim() == needle
+                }
+                "收件人" => {
+                    recipient_lower.trim() == needle
+                        || recipient_lower
+                            .split(|ch| ch == ',' || ch == ';')
+                            .any(|part| part.trim() == needle)
+                }
+                _ => haystack.trim() == needle,
+            },
             _ => haystack.contains(&needle),
         }
     };
 
     if is_or {
-        conds.iter().any(eval_one)
+        active_conds.iter().any(eval_one)
     } else {
-        conds.iter().all(eval_one)
+        active_conds.iter().all(eval_one)
     }
 }

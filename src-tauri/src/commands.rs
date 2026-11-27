@@ -1,9 +1,10 @@
 use crate::carddav::{parse_csv_contacts, parse_vcards, sync_carddav_contacts_async};
 use crate::db::{format_bytes, sanitize_filename, Database};
 use crate::mail_protocol::{
-    load_older_emails_blocking, refetch_attachment_blocking, refresh_imap_folders_blocking,
-    send_email_blocking, sync_account_blocking, sync_flag_to_imap_blocking,
-    sync_imap_folder_blocking, test_connection_blocking,
+    create_imap_folder_blocking, load_older_emails_blocking, move_email_to_folder_blocking,
+    move_emails_to_folder_batch_blocking, refetch_attachment_blocking,
+    refresh_imap_folders_blocking, send_email_blocking, sync_account_blocking,
+    sync_flag_to_imap_blocking, sync_imap_folder_blocking, test_connection_blocking,
 };
 use crate::models::*;
 use chrono::Local;
@@ -188,6 +189,64 @@ pub async fn sync_imap_folder(
     tokio::task::spawn_blocking(move || sync_imap_folder_blocking(&db_for_task, &acc, &folder))
         .await
         .map_err(|e| format!("同步文件夹任务中断: {}", e))?
+}
+
+#[tauri::command]
+pub async fn create_imap_folder(
+    state: State<'_, AppState>,
+    folder_name: String,
+    account_id: Option<String>,
+) -> Result<ImapFolderItem, String> {
+    let acc = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        db.get_account_with_secret(account_id.as_deref())?
+            .ok_or_else(|| "请先连接一个邮箱账户后再新建文件夹".to_string())?
+    };
+    let db_for_task = Arc::clone(&state.db);
+    tokio::task::spawn_blocking(move || {
+        create_imap_folder_blocking(&db_for_task, &acc, &folder_name)
+    })
+    .await
+    .map_err(|e| format!("创建文件夹任务中断: {}", e))?
+}
+
+#[tauri::command]
+pub async fn move_email_to_folder(
+    state: State<'_, AppState>,
+    email_id: String,
+    target_folder_key: String,
+) -> Result<(), String> {
+    let (remote_info, target_mailbox_opt) = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        let remote_ref = db.get_email_remote_ref(&email_id)?;
+        let target_mbx = if target_folder_key == "inbox" {
+            Some("INBOX".to_string())
+        } else if target_folder_key.starts_with("imap:") {
+            db.get_imap_folder(&target_folder_key)?.map(|f| f.raw_name)
+        } else {
+            None
+        };
+        let acc = match &remote_ref {
+            Some((aid, _, _)) => db.get_account_with_secret(Some(aid))?,
+            None => None,
+        };
+        ((remote_ref, acc), target_mbx)
+    };
+
+    if let ((Some((_, uid, source_mailbox)), Some(acc)), Some(target_mailbox)) =
+        (remote_info, target_mailbox_opt)
+    {
+        if acc.account.has_credentials {
+            tokio::task::spawn_blocking(move || {
+                move_email_to_folder_blocking(&acc, &source_mailbox, uid, &target_mailbox)
+            })
+            .await
+            .map_err(|e| format!("移动远端邮件任务中断: {}", e))??;
+        }
+    }
+
+    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db.move_email_folder(&email_id, &target_folder_key, target_folder_key == "archive")
 }
 
 pub async fn run_sync_all_internal(
@@ -376,44 +435,62 @@ pub async fn delete_email(state: State<'_, AppState>, email_id: String) -> Resul
     Ok(())
 }
 
+fn build_attachments_from_paths(paths: Vec<std::path::PathBuf>) -> Vec<EmailAttachment> {
+    let mut result = Vec::new();
+    for path in paths {
+        let Ok(meta) = fs::metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("attachment.bin")
+            .to_string();
+        let size_bytes = meta.len() as i64;
+        result.push(EmailAttachment {
+            id: format!("att-{}", Uuid::new_v4()),
+            name: sanitize_filename(&name),
+            size: format_bytes(size_bytes),
+            size_bytes,
+            mime_type: guess_mime(&name),
+            local_path: Some(path.to_string_lossy().to_string()),
+            cached: true,
+            content_base64: None,
+        });
+    }
+    result
+}
+
 #[tauri::command]
 pub async fn pick_attachment_files(app: AppHandle) -> Result<Vec<EmailAttachment>, String> {
     tokio::task::spawn_blocking(move || {
         let Some(files) = app.dialog().file().set_title("选择要添加的邮件附件").blocking_pick_files() else {
             return Ok(vec![]);
         };
-        let mut result = Vec::new();
-        for fp in files {
-            let Ok(path) = fp.into_path() else {
-                continue;
-            };
-            let Ok(meta) = fs::metadata(&path) else {
-                continue;
-            };
-            if !meta.is_file() {
-                continue;
-            }
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("attachment.bin")
-                .to_string();
-            let size_bytes = meta.len() as i64;
-            result.push(EmailAttachment {
-                id: format!("att-{}", Uuid::new_v4()),
-                name: sanitize_filename(&name),
-                size: format_bytes(size_bytes),
-                size_bytes,
-                mime_type: guess_mime(&name),
-                local_path: Some(path.to_string_lossy().to_string()),
-                cached: true,
-                content_base64: None,
-            });
-        }
-        Ok(result)
+        let paths: Vec<std::path::PathBuf> = files
+            .into_iter()
+            .filter_map(|fp| fp.into_path().ok())
+            .collect();
+        Ok(build_attachments_from_paths(paths))
     })
     .await
     .map_err(|e| format!("打开文件选择框失败: {}", e))?
+}
+
+#[tauri::command]
+pub async fn read_attachment_paths(paths: Vec<String>) -> Result<Vec<EmailAttachment>, String> {
+    tokio::task::spawn_blocking(move || {
+        let path_bufs: Vec<std::path::PathBuf> = paths
+            .into_iter()
+            .map(|p| std::path::PathBuf::from(p.trim()))
+            .collect();
+        Ok(build_attachments_from_paths(path_bufs))
+    })
+    .await
+    .map_err(|e| format!("读取拖拽附件失败: {}", e))?
 }
 
 #[tauri::command]
@@ -498,19 +575,117 @@ pub fn clear_attachment_cache(state: State<'_, AppState>) -> Result<CacheStats, 
 }
 
 #[tauri::command]
-pub fn save_filter_rule(
+pub async fn save_filter_rule(
     state: State<'_, AppState>,
     rule: FilterRuleItem,
     apply_existing: bool,
 ) -> Result<i64, String> {
-    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
-    db.save_filter_rule(&rule, apply_existing)
+    let remote_moves = if apply_existing {
+        if let Some(ref target_key) = rule.action_folder {
+            let tf = target_key.trim();
+            if tf.starts_with("imap:") {
+                let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+                if let Some(target_folder) = db.get_imap_folder(tf)? {
+                    let refs = db.list_matching_remote_refs_for_rule(&rule, tf)?;
+                    let acc = db.get_account_with_secret(Some(&target_folder.account_id))?;
+                    acc.filter(|a| a.account.has_credentials).map(|a| {
+                        let filtered: Vec<(u32, String)> = refs
+                            .into_iter()
+                            .filter(|(aid, _, _)| aid == &target_folder.account_id)
+                            .map(|(_, uid, src)| (uid, src))
+                            .collect();
+                        (a, target_folder.raw_name, filtered)
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let matched = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        db.save_filter_rule(&rule, apply_existing)?
+    };
+
+    if let Some((acc, target_raw, items)) = remote_moves {
+        if !items.is_empty() {
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = move_emails_to_folder_batch_blocking(&acc, &items, &target_raw);
+            })
+            .await;
+        }
+    }
+
+    Ok(matched)
+}
+
+#[tauri::command]
+pub async fn run_filter_rule(state: State<'_, AppState>, id: String) -> Result<i64, String> {
+    let (rule, remote_moves) = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        let Some(rule) = db.get_filter_rule(&id)? else {
+            return Err("未找到对应的过滤规则".into());
+        };
+        let moves = if let Some(ref target_key) = rule.action_folder {
+            let tf = target_key.trim();
+            if tf.starts_with("imap:") {
+                if let Some(target_folder) = db.get_imap_folder(tf)? {
+                    let refs = db.list_matching_remote_refs_for_rule(&rule, tf)?;
+                    let acc = db.get_account_with_secret(Some(&target_folder.account_id))?;
+                    acc.filter(|a| a.account.has_credentials).map(|a| {
+                        let filtered: Vec<(u32, String)> = refs
+                            .into_iter()
+                            .filter(|(aid, _, _)| aid == &target_folder.account_id)
+                            .map(|(_, uid, src)| (uid, src))
+                            .collect();
+                        (a, target_folder.raw_name, filtered)
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        (rule, moves)
+    };
+
+    let matched = {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        db.apply_rule_to_existing_emails(&rule)?
+    };
+
+    if let Some((acc, target_raw, items)) = remote_moves {
+        if !items.is_empty() {
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = move_emails_to_folder_batch_blocking(&acc, &items, &target_raw);
+            })
+            .await;
+        }
+    }
+
+    Ok(matched)
 }
 
 #[tauri::command]
 pub fn toggle_filter_rule(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
     db.toggle_filter_rule(&id)
+}
+
+#[tauri::command]
+pub fn delete_filter_rule(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db.delete_filter_rule(&id)
 }
 
 #[tauri::command]
@@ -621,6 +796,340 @@ pub async fn invoke_llm_chat(
         .as_str()
         .ok_or_else(|| "AI 返回内容为空".to_string())?;
     Ok(content.to_string())
+}
+
+static EDGE_TRANSLATE_TOKEN: std::sync::OnceLock<Mutex<Option<(String, std::time::Instant)>>> =
+    std::sync::OnceLock::new();
+
+const TRANSLATE_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0";
+
+fn edge_lang_code(lang: &str) -> &'static str {
+    match lang {
+        "zh-CN" | "zh" | "zh-Hans" => "zh-Hans",
+        "en" | "en-US" => "en",
+        "ja" => "ja",
+        "ko" => "ko",
+        _ => "zh-Hans",
+    }
+}
+
+fn google_lang_code(lang: &str) -> &'static str {
+    match lang {
+        "zh-CN" | "zh" | "zh-Hans" => "zh-CN",
+        "en" | "en-US" => "en",
+        "ja" => "ja",
+        "ko" => "ko",
+        _ => "zh-CN",
+    }
+}
+
+async fn get_edge_translate_token(
+    client: &reqwest::Client,
+    force_new: bool,
+) -> Result<String, String> {
+    let cache = EDGE_TRANSLATE_TOKEN.get_or_init(|| Mutex::new(None));
+    if !force_new {
+        if let Ok(guard) = cache.lock() {
+            if let Some((ref tok, instant)) = *guard {
+                if instant.elapsed() < std::time::Duration::from_secs(480) && !tok.is_empty() {
+                    return Ok(tok.clone());
+                }
+            }
+        }
+    }
+
+    let resp = client
+        .get("https://edge.microsoft.com/translate/auth")
+        .header(reqwest::header::USER_AGENT, TRANSLATE_UA)
+        .send()
+        .await
+        .map_err(|e| format!("获取微软翻译令牌失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("微软翻译鉴权返回状态码 {}", resp.status()));
+    }
+
+    let token = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取微软翻译令牌失败: {}", e))?
+        .trim()
+        .to_string();
+
+    if token.is_empty() {
+        return Err("微软翻译鉴权返回为空".into());
+    }
+
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some((token.clone(), std::time::Instant::now()));
+    }
+    Ok(token)
+}
+
+async fn translate_texts_via_edge(
+    client: &reqwest::Client,
+    texts: &[String],
+    target_lang: &str,
+) -> Result<Vec<String>, String> {
+    let to_code = edge_lang_code(target_lang);
+    let url = format!(
+        "https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&to={}",
+        to_code
+    );
+
+    let mut token = get_edge_translate_token(client, false).await?;
+    let mut results = Vec::with_capacity(texts.len());
+
+    let mut idx = 0usize;
+    while idx < texts.len() {
+        let mut batch: Vec<&str> = Vec::new();
+        let mut char_total = 0usize;
+        while idx < texts.len() && batch.len() < 25 {
+            let item = texts[idx].as_str();
+            let item_len = item.chars().count().max(1);
+            if !batch.is_empty() && char_total + item_len > 5500 {
+                break;
+            }
+            batch.push(item);
+            char_total += item_len;
+            idx += 1;
+        }
+
+        let payload: Vec<serde_json::Value> = batch
+            .iter()
+            .map(|t| serde_json::json!({ "Text": t }))
+            .collect();
+
+        let mut resp = client
+            .post(&url)
+            .header(reqwest::header::USER_AGENT, TRANSLATE_UA)
+            .bearer_auth(&token)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("请求微软翻译失败: {}", e))?;
+
+        if resp.status().as_u16() == 401 || resp.status().as_u16() == 403 {
+            token = get_edge_translate_token(client, true).await?;
+            resp = client
+                .post(&url)
+                .header(reqwest::header::USER_AGENT, TRANSLATE_UA)
+                .bearer_auth(&token)
+                .json(&payload)
+                .send()
+                .await
+                .map_err(|e| format!("重试微软翻译失败: {}", e))?;
+        }
+
+        if !resp.status().is_success() {
+            return Err(format!("微软翻译接口返回状态码 {}", resp.status()));
+        }
+
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("解析微软翻译结果失败: {}", e))?;
+
+        let arr = json
+            .as_array()
+            .ok_or_else(|| "微软翻译返回格式异常".to_string())?;
+        if arr.len() != batch.len() {
+            return Err("微软翻译返回段落数不匹配".into());
+        }
+
+        for (i, item) in arr.iter().enumerate() {
+            let translated = item["translations"][0]["text"]
+                .as_str()
+                .unwrap_or(batch[i])
+                .to_string();
+            results.push(translated);
+        }
+    }
+
+    Ok(results)
+}
+
+async fn translate_single_via_google(
+    client: &reqwest::Client,
+    text: &str,
+    to_code: &str,
+) -> Result<String, String> {
+    if text.trim().is_empty() {
+        return Ok(String::new());
+    }
+    let resp = client
+        .get("https://translate.googleapis.com/translate_a/single")
+        .header(reqwest::header::USER_AGENT, TRANSLATE_UA)
+        .query(&[
+            ("client", "gtx"),
+            ("sl", "auto"),
+            ("tl", to_code),
+            ("dt", "t"),
+            ("q", text),
+        ])
+        .send()
+        .await
+        .map_err(|e| format!("请求谷歌翻译失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("谷歌翻译接口返回状态码 {}", resp.status()));
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析谷歌翻译结果失败: {}", e))?;
+
+    let mut out = String::new();
+    if let Some(segments) = json.get(0).and_then(|v| v.as_array()) {
+        for seg in segments {
+            if let Some(piece) = seg.get(0).and_then(|v| v.as_str()) {
+                out.push_str(piece);
+            }
+        }
+    }
+    if out.is_empty() {
+        Ok(text.to_string())
+    } else {
+        Ok(out)
+    }
+}
+
+async fn translate_texts_via_google(
+    client: &reqwest::Client,
+    texts: &[String],
+    target_lang: &str,
+) -> Result<Vec<String>, String> {
+    let to_code = google_lang_code(target_lang);
+    let mut results = Vec::with_capacity(texts.len());
+    const SEP: &str = "\n<<<LM_P>>>\n";
+
+    let mut idx = 0usize;
+    while idx < texts.len() {
+        let mut batch: Vec<&str> = Vec::new();
+        let mut char_total = 0usize;
+        while idx < texts.len() && batch.len() < 12 {
+            let item = texts[idx].as_str();
+            let item_len = item.chars().count().max(1);
+            if !batch.is_empty() && char_total + item_len > 2600 {
+                break;
+            }
+            batch.push(item);
+            char_total += item_len;
+            idx += 1;
+        }
+
+        if batch.len() == 1 {
+            results.push(translate_single_via_google(client, batch[0], to_code).await?);
+            continue;
+        }
+
+        let joined = batch.join(SEP);
+        let translated = translate_single_via_google(client, &joined, to_code).await?;
+        let parts: Vec<String> = translated
+            .split("<<<LM_P>>>")
+            .map(|s| s.trim().to_string())
+            .collect();
+
+        if parts.len() == batch.len() {
+            results.extend(parts);
+        } else {
+            for item in batch {
+                results.push(translate_single_via_google(client, item, to_code).await?);
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn get_email_translation(
+    state: State<'_, AppState>,
+    email_id: String,
+    target_lang: Option<String>,
+    engine: Option<String>,
+) -> Result<Option<EmailTranslationRecord>, String> {
+    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    if let (Some(lang), Some(eng)) = (target_lang, engine) {
+        db.get_email_translation(&email_id, &lang, &eng)
+    } else {
+        db.get_latest_email_translation(&email_id)
+    }
+}
+
+#[tauri::command]
+pub fn save_email_translation(
+    state: State<'_, AppState>,
+    record: EmailTranslationRecord,
+) -> Result<(), String> {
+    let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+    db.save_email_translation(&record)
+}
+
+#[tauri::command]
+pub async fn translate_email_free(
+    state: State<'_, AppState>,
+    req: FreeTranslateRequest,
+) -> Result<EmailTranslationRecord, String> {
+    if !req.force_refresh {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        if let Some(cached) = db.get_email_translation(&req.email_id, &req.target_lang, "free")? {
+            return Ok(cached);
+        }
+    }
+
+    let mut all_texts = Vec::with_capacity(1 + req.paragraphs.len());
+    all_texts.push(req.subject.clone());
+    all_texts.extend(req.paragraphs.iter().cloned());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("初始化翻译 HTTP 客户端失败: {}", e))?;
+
+    let (translated_all, provider_label) =
+        match translate_texts_via_edge(&client, &all_texts, &req.target_lang).await {
+            Ok(list) => (list, "微软免费翻译".to_string()),
+            Err(edge_err) => {
+                match translate_texts_via_google(&client, &all_texts, &req.target_lang).await {
+                    Ok(list) => (list, "谷歌免费翻译".to_string()),
+                    Err(google_err) => {
+                        return Err(format!(
+                            "免配置翻译通道暂不可用（微软：{}；谷歌：{}），请检查网络或切换至自定义 AI 翻译",
+                            edge_err, google_err
+                        ));
+                    }
+                }
+            }
+        };
+
+    let subject = translated_all
+        .first()
+        .cloned()
+        .unwrap_or_else(|| req.subject.clone());
+    let paragraphs = if translated_all.len() > 1 {
+        translated_all[1..].to_vec()
+    } else {
+        vec![]
+    };
+
+    let record = EmailTranslationRecord {
+        email_id: req.email_id,
+        target_lang: req.target_lang,
+        engine: "free".to_string(),
+        subject,
+        paragraphs,
+        provider_label,
+        updated_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    };
+
+    {
+        let db = state.db.lock().map_err(|_| "数据库锁异常".to_string())?;
+        let _ = db.save_email_translation(&record);
+    }
+
+    Ok(record)
 }
 
 #[tauri::command]

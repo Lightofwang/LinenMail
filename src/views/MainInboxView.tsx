@@ -1,17 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Avatar } from '../components/Avatar';
 import { EmailBodyRenderer } from '../components/EmailBodyRenderer';
+import { MailFolderStrip } from '../components/MailFolderStrip';
 import {
   ComposePrefill,
   EmailAttachment,
   EmailItem,
+  EmailTranslationRecord,
   ImapFolderItem,
   InboxFilter,
   LabelItem,
   LlmProfile,
   MailFolder,
+  TranslationEngine,
+  TranslationTargetLang,
+  TranslationTargetPreference,
 } from '../types/mail';
-import { translateEmailWithAi, TranslationResult } from '../utils/aiClient';
+import {
+  detectDefaultTargetLang,
+  getCachedEmailTranslation,
+  getLangLabel,
+  TRANSLATION_LANG_OPTIONS,
+  translateEmailUnified,
+  TranslationError,
+} from '../utils/aiClient';
 import { cleanMailText, isMacPlatform } from '../utils/textClean';
 
 interface MainInboxViewProps {
@@ -19,10 +31,16 @@ interface MainInboxViewProps {
   labels: LabelItem[];
   activeFolder: MailFolder;
   activeImapFolder?: ImapFolderItem | null;
+  inboxUnreadCount: number;
+  draftCount: number;
+  imapFolders: ImapFolderItem[];
+  refreshingFolders?: boolean;
   activeEmailId: string;
   searchQuery: string;
   tagFilter: string | null;
   activeLlm: LlmProfile;
+  translationEngine?: TranslationEngine;
+  translationTargetLang?: TranslationTargetPreference;
   enableShortcuts: boolean;
   minimalReading: boolean;
   undoSeconds: number;
@@ -37,6 +55,12 @@ interface MainInboxViewProps {
   onSyncNow?: () => void;
   onSyncActiveFolder?: () => void;
   onLoadOlderEmails?: () => void;
+  onSelectFolder: (folder: MailFolder) => void;
+  onSelectDrafts: () => void;
+  onSelectImapFolder: (folder: ImapFolderItem) => void;
+  onRefreshFolders?: () => void;
+  onCreateFolder?: (folderName: string) => Promise<void>;
+  onMoveEmailToFolder?: (emailId: string, targetFolderKey: string, targetLabel: string) => void;
   onDownloadAttachment: (email: EmailItem, att: EmailAttachment) => Promise<string>;
   onSelectEmail: (id: string) => void;
   onClearTagFilter: () => void;
@@ -47,6 +71,7 @@ interface MainInboxViewProps {
   onChangeTag: (id: string, tag: string) => void;
   onSendQuickReply: (toEmail: string, subject: string, body: string) => void;
   onForwardEmail: (prefill: ComposePrefill) => void;
+  onOpenAiSettings?: () => void;
 }
 
 const FOLDER_TITLES: Record<string, string> = {
@@ -62,10 +87,16 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   labels,
   activeFolder,
   activeImapFolder = null,
+  inboxUnreadCount,
+  draftCount,
+  imapFolders,
+  refreshingFolders = false,
   activeEmailId,
   searchQuery,
   tagFilter,
   activeLlm,
+  translationEngine = 'free',
+  translationTargetLang = 'auto',
   enableShortcuts,
   minimalReading,
   userName,
@@ -79,6 +110,12 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   onSyncNow,
   onSyncActiveFolder,
   onLoadOlderEmails,
+  onSelectFolder,
+  onSelectDrafts,
+  onSelectImapFolder,
+  onRefreshFolders,
+  onCreateFolder,
+  onMoveEmailToFolder,
   onDownloadAttachment,
   onSelectEmail,
   onClearTagFilter,
@@ -89,6 +126,7 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   onChangeTag,
   onSendQuickReply,
   onForwardEmail,
+  onOpenAiSettings,
 }) => {
   const [currentFilter, setCurrentFilter] = useState<InboxFilter>('all');
   const [quickReply, setQuickReply] = useState('');
@@ -98,7 +136,15 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
   const [snoozeOpen, setSnoozeOpen] = useState(false);
 
   const [translating, setTranslating] = useState(false);
-  const [translation, setTranslation] = useState<TranslationResult | null>(null);
+  const [showTranslation, setShowTranslation] = useState(false);
+  const [translation, setTranslation] = useState<EmailTranslationRecord | null>(null);
+  const [translationFromCache, setTranslationFromCache] = useState(false);
+  const [selectedTargetLang, setSelectedTargetLang] = useState<TranslationTargetLang>('zh-CN');
+  const [selectedEngine, setSelectedEngine] = useState<TranslationEngine>(translationEngine);
+  const [translationError, setTranslationError] = useState<{
+    message: string;
+    code: 'NO_AI_KEY' | 'TRANSLATE_FAILED';
+  } | null>(null);
 
   const [ctxMenu, setCtxMenu] = useState<{
     open: boolean;
@@ -156,12 +202,44 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
     [folderEmails]
   );
 
-  // Reset translation & recipient chip when switching email
+  // Reset translation & silently check local SQLite cache when switching email
   useEffect(() => {
+    setShowTranslation(false);
     setTranslation(null);
+    setTranslationFromCache(false);
+    setTranslationError(null);
+    setTranslating(false);
     setReplyRecipientVisible(true);
     setSnoozeOpen(false);
-  }, [activeMail?.id]);
+
+    if (!activeMail) return;
+    const defaultLang = detectDefaultTargetLang(activeMail, translationTargetLang);
+    const defaultEng: TranslationEngine = translationEngine || 'free';
+    setSelectedTargetLang(defaultLang);
+    setSelectedEngine(defaultEng);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        let cached = await getCachedEmailTranslation(activeMail.id, defaultLang, defaultEng);
+        if (!cached) {
+          cached = await getCachedEmailTranslation(activeMail.id);
+        }
+        if (!cancelled && cached && cached.paragraphs.length > 0) {
+          setTranslation(cached);
+          setTranslationFromCache(true);
+          setSelectedTargetLang(cached.targetLang);
+          setSelectedEngine(cached.engine);
+        }
+      } catch {
+        // Ignore silent cache lookup failures
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMail?.id, translationEngine, translationTargetLang]);
 
   // Close context menu on global click or escape
   useEffect(() => {
@@ -232,19 +310,53 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
     onToggleStar,
   ]);
 
-  const handleTranslate = async (mailOverride?: EmailItem) => {
-    const targetMail = mailOverride || activeMail;
-    if (!targetMail) return;
+  const runTranslate = async (
+    targetLang: TranslationTargetLang,
+    engine: TranslationEngine,
+    forceRefresh = false
+  ) => {
+    if (!activeMail) return;
+    setSelectedTargetLang(targetLang);
+    setSelectedEngine(engine);
+    setTranslationError(null);
+    setTranslating(true);
+    try {
+      const res = await translateEmailUnified({
+        email: activeMail,
+        targetLang,
+        engine,
+        llmProfile: activeLlm,
+        forceRefresh,
+      });
+      setTranslation(res.record);
+      setTranslationFromCache(res.fromCache);
+      setShowTranslation(true);
+    } catch (err) {
+      if (err instanceof TranslationError) {
+        setTranslationError({ message: err.message, code: err.code });
+      } else {
+        setTranslationError({
+          message: err instanceof Error ? err.message : String(err),
+          code: 'TRANSLATE_FAILED',
+        });
+      }
+    } finally {
+      setTranslating(false);
+    }
+  };
 
-    if (!mailOverride && translation) {
-      setTranslation(null);
+  const handleToggleTranslate = () => {
+    if (!activeMail || translating) return;
+    if (showTranslation) {
+      setShowTranslation(false);
       return;
     }
-
-    setTranslating(true);
-    const result = await translateEmailWithAi(targetMail, activeLlm);
-    setTranslation(result);
-    setTranslating(false);
+    if (translation && translation.emailId === activeMail.id) {
+      setTranslationError(null);
+      setShowTranslation(true);
+      return;
+    }
+    void runTranslate(selectedTargetLang, selectedEngine, false);
   };
 
   const handleSendReply = () => {
@@ -273,13 +385,27 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
 
   return (
     <main className="flex-1 min-h-0 flex flex-col lg:flex-row gap-5 overflow-hidden">
-      {/* Left Column: Unified Single-List Triage */}
+      {/* Left Column: Unified Folder Strip + Single-List Triage */}
       <section
         aria-label="邮件列表"
         className="w-full lg:w-[340px] xl:w-[420px] 2xl:w-[460px] shrink-0 flex flex-col gap-3 min-h-0 h-full"
       >
+        <MailFolderStrip
+          activeFolder={activeFolder}
+          isDraftsActive={false}
+          inboxUnreadCount={inboxUnreadCount}
+          draftCount={draftCount}
+          imapFolders={imapFolders}
+          refreshingFolders={refreshingFolders}
+          onSelectFolder={onSelectFolder}
+          onSelectDrafts={onSelectDrafts}
+          onSelectImapFolder={onSelectImapFolder}
+          onRefreshFolders={onRefreshFolders}
+          onCreateFolder={onCreateFolder}
+        />
+
         {/* Triage Title & Filter Chips */}
-        <div className="shrink-0 flex flex-col gap-3 px-1">
+        <div className="shrink-0 flex flex-col gap-2.5 px-1">
           <div className="flex items-center justify-between gap-gutter-sm">
             <div className="flex items-center gap-gutter-sm min-w-0">
               <h1
@@ -330,7 +456,7 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
           <div className="flex flex-wrap items-center gap-gutter-sm" role="group" aria-label="邮件筛选">
             {(
               [
-                { id: 'all', label: '全部收件' },
+                { id: 'all', label: activeFolder === 'inbox' ? '全部收件' : '全部' },
                 { id: 'unread', label: '未读' },
                 { id: 'starred', label: '星标' },
                 { id: 'attachment', label: '附件' },
@@ -628,15 +754,32 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
               <div className="relative flex items-center gap-gutter-xs">
                 <button
                   type="button"
-                  onClick={() => handleTranslate()}
+                  onClick={handleToggleTranslate}
                   disabled={translating}
-                  className="inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-low text-light-on-surface hover:bg-light-secondary-container hover:text-light-on-secondary-container font-label text-label-md transition-colors duration-state-change mr-gutter-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary cursor-pointer"
+                  className={`inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full font-label text-label-md transition-colors duration-state-change mr-gutter-xs whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary cursor-pointer disabled:opacity-60 ${
+                    showTranslation && translation
+                      ? 'bg-light-secondary-container text-light-on-secondary-container hover:bg-light-secondary-container/80'
+                      : translation
+                      ? 'bg-light-surface-container-low text-light-primary hover:bg-light-secondary-container/60'
+                      : 'bg-light-surface-container-low text-light-on-surface hover:bg-light-secondary-container hover:text-light-on-secondary-container'
+                  }`}
                 >
-                  <span className="material-symbols-outlined text-title-md" aria-hidden="true">
-                    translate
+                  <span
+                    className={`material-symbols-outlined text-title-md ${
+                      translating ? 'animate-spin' : ''
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {translating ? 'progress_activity' : 'translate'}
                   </span>
                   <span>
-                    {translating ? '正在翻译...' : translation ? '已翻译' : '翻译邮件'}
+                    {translating
+                      ? '正在翻译...'
+                      : showTranslation && translation
+                      ? '查看原文'
+                      : translation
+                      ? '查看译文（已缓存）'
+                      : '翻译邮件'}
                   </span>
                 </button>
 
@@ -718,9 +861,11 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
               </div>
             </div>
 
-            {/* Editorial Subject Line */}
+            {/* Editorial Subject Line (Switches seamlessly between Original & Translated) */}
             <h2 className="font-headline text-headline-lg text-light-on-surface text-balance">
-              {cleanMailText(activeMail.subject)}
+              {showTranslation && translation
+                ? cleanMailText(translation.subject)
+                : cleanMailText(activeMail.subject)}
             </h2>
 
             {/* Sender Metadata */}
@@ -755,52 +900,177 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
 
             </div>
 
-            {/* Independently Scrollable Email Body + Translation + Attachments */}
+            {/* Independently Scrollable Email Body + Translation Control Strip + Attachments */}
             <div className="flex-1 min-h-0 overflow-y-auto px-7 py-6 linen-scroll flex flex-col gap-6">
-              {/* Email Body (Structured primary message, signature & forwarded/quoted cards) */}
-              <EmailBodyRenderer
-                emailId={activeMail.id}
-                subject={activeMail.subject}
-                paragraphs={activeMail.paragraphs}
-                signoff={activeMail.signoff}
-              />
-
-            {/* AI Translation Panel */}
-            {translation && (
-              <div className="flex flex-col gap-gutter-sm rounded-lg bg-light-surface-container-low p-gutter-md">
-                <div className="flex items-center justify-between gap-gutter-sm">
-                  <div className="flex items-center gap-gutter-xs">
-                    <span
-                      className="material-symbols-outlined text-title-md text-light-secondary"
-                      aria-hidden="true"
-                    >
-                      translate
-                    </span>
-                    <span className="font-label text-label-md text-light-on-surface">
-                      AI 译文（English）
-                    </span>
-                    <span className="font-mono text-mono-sm px-gutter-sm py-0.5 rounded-full bg-light-secondary-container text-light-on-secondary-container">
-                      {translation.model}
-                    </span>
+              {/* Quiet Whole-Email Translation Control Strip */}
+              {showTranslation && translation && (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-light-surface-container-low/80 border border-light-outline-variant/25">
+                  <div className="flex flex-wrap items-center gap-2 text-body-sm text-light-on-surface-variant min-w-0">
+                    <span className="font-label text-label-md text-light-secondary">译文</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{getLangLabel(translation.targetLang)}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{translation.providerLabel}</span>
+                    {translationFromCache && (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span>本地缓存</span>
+                      </>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setTranslation(null)}
-                    className="font-label text-label-sm text-light-on-surface-variant hover:text-light-on-surface px-gutter-sm py-0.5 rounded-full hover:bg-light-surface-container transition-colors duration-state-change cursor-pointer"
-                  >
-                    收起译文
-                  </button>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <select
+                      aria-label="选择目标语言"
+                      value={selectedTargetLang}
+                      disabled={translating}
+                      onChange={(e) =>
+                        void runTranslate(
+                          e.target.value as TranslationTargetLang,
+                          selectedEngine,
+                          false
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-md bg-light-surface-container-lowest border border-light-outline-variant/30 font-label text-label-sm text-light-on-surface focus:ring-1 focus:ring-light-primary focus:outline-none cursor-pointer disabled:opacity-60"
+                    >
+                      {TRANSLATION_LANG_OPTIONS.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div
+                      className="inline-flex items-center p-0.5 rounded-md bg-light-surface-container border border-light-outline-variant/20"
+                      role="group"
+                      aria-label="切换翻译引擎"
+                    >
+                      {(
+                        [
+                          { id: 'free', label: '免费通道' },
+                          { id: 'ai', label: '自定义 AI' },
+                        ] as const
+                      ).map((eng) => {
+                        const active = selectedEngine === eng.id;
+                        return (
+                          <button
+                            key={eng.id}
+                            type="button"
+                            disabled={translating}
+                            onClick={() => {
+                              if (selectedEngine !== eng.id) {
+                                void runTranslate(selectedTargetLang, eng.id, false);
+                              }
+                            }}
+                            className={`px-2.5 py-0.5 rounded font-label text-label-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer disabled:opacity-60 ${
+                              active
+                                ? 'bg-light-surface-container-lowest text-light-on-surface shadow-xs'
+                                : 'text-light-on-surface-variant hover:text-light-on-surface'
+                            }`}
+                          >
+                            {eng.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={translating}
+                      onClick={() => void runTranslate(selectedTargetLang, selectedEngine, true)}
+                      title="跳过缓存重新翻译"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface font-label text-label-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      <span
+                        className={`material-symbols-outlined text-body-md ${
+                          translating ? 'animate-spin' : ''
+                        }`}
+                        aria-hidden="true"
+                      >
+                        refresh
+                      </span>
+                      <span>重新翻译</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowTranslation(false)}
+                      className="px-2.5 py-1 rounded-md text-light-primary hover:bg-light-surface-container font-label text-label-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                    >
+                      查看原文
+                    </button>
+                  </div>
                 </div>
-                <p className="font-title text-title-md text-light-on-surface">
-                  {translation.subject}
-                </p>
-                <div className="font-body text-body-md text-light-on-surface-variant flex flex-col gap-gutter-xs leading-relaxed">
-                  {translation.paragraphs.map((p, i) => (
-                    <p key={i}>{p}</p>
-                  ))}
+              )}
+
+              {/* Inline Translation Error Recovery Bar */}
+              {translationError && (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-light-error-container/55 text-light-on-error-container">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="material-symbols-outlined text-title-md shrink-0" aria-hidden="true">
+                      error_outline
+                    </span>
+                    <span className="font-body text-body-sm">{translationError.message}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {translationError.code === 'NO_AI_KEY' && onOpenAiSettings && (
+                      <button
+                        type="button"
+                        onClick={onOpenAiSettings}
+                        className="px-3 py-1 rounded-full bg-light-primary text-light-on-primary hover:bg-light-primary-container font-label text-label-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                      >
+                        去配置 AI 模型
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={translating}
+                      onClick={() =>
+                        void runTranslate(
+                          selectedTargetLang,
+                          selectedEngine === 'ai' ? 'free' : 'ai',
+                          false
+                        )
+                      }
+                      className="px-3 py-1 rounded-full bg-light-surface-container-lowest text-light-on-surface hover:bg-light-surface-container font-label text-label-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                    >
+                      {selectedEngine === 'ai' ? '改用免费通道' : '改用自定义 AI'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={translating}
+                      onClick={() => void runTranslate(selectedTargetLang, selectedEngine, true)}
+                      className="px-3 py-1 rounded-full bg-light-surface-container-lowest text-light-on-surface hover:bg-light-surface-container font-label text-label-sm whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                    >
+                      重试
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="关闭错误提示"
+                      onClick={() => setTranslationError(null)}
+                      className="w-7 h-7 rounded-full inline-flex items-center justify-center hover:bg-light-surface-container-lowest/60 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-body-md" aria-hidden="true">
+                        close
+                      </span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+
+              {/* Email Body (Original or Whole-Email Translation) */}
+              <EmailBodyRenderer
+                emailId={
+                  showTranslation && translation
+                    ? `${activeMail.id}-tr-${translation.targetLang}-${translation.engine}`
+                    : activeMail.id
+                }
+                subject={showTranslation && translation ? translation.subject : activeMail.subject}
+                paragraphs={
+                  showTranslation && translation ? translation.paragraphs : activeMail.paragraphs
+                }
+                signoff={showTranslation && translation ? '' : activeMail.signoff}
+              />
 
             {/* Attachment Pills (Real Tauri Save As / Browser Download) */}
             {((activeMail.attachments && activeMail.attachments.length > 0) ||
@@ -1049,26 +1319,91 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
             <kbd className="font-mono text-mono-sm text-light-on-surface-variant">S</kbd>
           </button>
 
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onSelectEmail(ctxTargetMail.id);
-              setCtxMenu((p) => ({ ...p, open: false }));
-              handleTranslate(ctxTargetMail);
-            }}
-            className="w-full flex items-center justify-between gap-gutter-sm px-gutter-sm py-gutter-xs rounded-lg text-light-on-surface hover:bg-light-surface-container-low font-body text-body-md transition-colors duration-state-change cursor-pointer"
-          >
-            <span className="flex items-center gap-gutter-sm">
-              <span
-                className="material-symbols-outlined text-title-md text-light-secondary"
-                aria-hidden="true"
+          {onMoveEmailToFolder && (
+            <div className="relative group/folder-move">
+              <button
+                type="button"
+                aria-haspopup="menu"
+                className="w-full flex items-center justify-between gap-gutter-sm px-gutter-sm py-gutter-xs rounded-lg text-light-on-surface hover:bg-light-surface-container-low font-body text-body-md transition-colors duration-state-change cursor-pointer"
               >
-                translate
-              </span>
-              <span>AI 翻译邮件</span>
-            </span>
-          </button>
+                <span className="flex items-center gap-gutter-sm">
+                  <span
+                    className="material-symbols-outlined text-title-md text-light-primary"
+                    aria-hidden="true"
+                  >
+                    drive_file_move
+                  </span>
+                  <span>移动到文件夹</span>
+                </span>
+                <span
+                  className="material-symbols-outlined text-title-md text-light-on-surface-variant"
+                  aria-hidden="true"
+                >
+                  chevron_right
+                </span>
+              </button>
+
+              <div
+                role="menu"
+                aria-label="选择目标文件夹"
+                className="hidden group-hover/folder-move:flex absolute left-full top-0 ml-1.5 w-52 max-h-64 overflow-y-auto linen-scroll bg-light-surface-container-lowest rounded-xl p-gutter-xs shadow-[0_16px_40px_-8px_rgba(35,25,20,0.18)] ring-1 ring-light-outline-variant/40 flex-col gap-0.5 z-50"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onMoveEmailToFolder(ctxTargetMail.id, 'inbox', '收件箱');
+                    setCtxMenu((p) => ({ ...p, open: false }));
+                  }}
+                  className="w-full flex items-center justify-between px-gutter-sm py-gutter-xs rounded-lg text-light-on-surface hover:bg-light-surface-container-low font-body text-body-md transition-colors duration-state-change cursor-pointer"
+                >
+                  <span className="truncate">收件箱</span>
+                  {ctxTargetMail.folder === 'inbox' && !ctxTargetMail.archived && (
+                    <span
+                      className="material-symbols-outlined text-title-md text-light-secondary shrink-0"
+                      aria-hidden="true"
+                    >
+                      check
+                    </span>
+                  )}
+                </button>
+
+                {imapFolders
+                  .filter((f) => f.kind === 'custom')
+                  .map((folder) => {
+                    const isHere = ctxTargetMail.folder === folder.folderKey && !ctxTargetMail.archived;
+                    return (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          onMoveEmailToFolder(ctxTargetMail.id, folder.folderKey, folder.displayName);
+                          setCtxMenu((p) => ({ ...p, open: false }));
+                        }}
+                        className="w-full flex items-center justify-between px-gutter-sm py-gutter-xs rounded-lg text-light-on-surface hover:bg-light-surface-container-low font-body text-body-md transition-colors duration-state-change cursor-pointer"
+                      >
+                        <span className="truncate">{folder.displayName}</span>
+                        {isHere && (
+                          <span
+                            className="material-symbols-outlined text-title-md text-light-secondary shrink-0"
+                            aria-hidden="true"
+                          >
+                            check
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+
+                {imapFolders.filter((f) => f.kind === 'custom').length === 0 && (
+                  <div className="px-gutter-sm py-gutter-xs font-body text-body-sm text-light-on-surface-variant">
+                    暂无自定义文件夹，可点列表上方「+」新建
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="relative group/move">
             <button
@@ -1078,12 +1413,12 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
             >
               <span className="flex items-center gap-gutter-sm">
                 <span
-                  className="material-symbols-outlined text-title-md text-light-primary"
+                  className="material-symbols-outlined text-title-md text-light-secondary"
                   aria-hidden="true"
                 >
-                  drive_file_move
+                  label
                 </span>
-                <span>移动到智能分类</span>
+                <span>设置个人标签</span>
               </span>
               <span
                 className="material-symbols-outlined text-title-md text-light-on-surface-variant"
@@ -1100,7 +1435,7 @@ export const MainInboxView: React.FC<MainInboxViewProps> = ({
             >
               {labels.length === 0 ? (
                 <div className="px-gutter-sm py-gutter-xs font-body text-body-sm text-light-on-surface-variant">
-                  暂无个人标签，请在「智能分类」中新建
+                  暂无个人标签，请在「系统设置 → 个人标签」中新建
                 </div>
               ) : (
                 labels.map((lbl) => (

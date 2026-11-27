@@ -184,11 +184,14 @@ pub fn run() {
             commands::update_email_flags,
             commands::delete_email,
             commands::pick_attachment_files,
+            commands::read_attachment_paths,
             commands::download_attachment,
             commands::get_cache_stats,
             commands::clear_attachment_cache,
             commands::save_filter_rule,
+            commands::run_filter_rule,
             commands::toggle_filter_rule,
+            commands::delete_filter_rule,
             commands::save_smart_folder,
             commands::toggle_smart_folder,
             commands::delete_smart_folder,
@@ -197,6 +200,9 @@ pub fn run() {
             commands::save_llm_profile,
             commands::activate_llm_profile,
             commands::invoke_llm_chat,
+            commands::get_email_translation,
+            commands::save_email_translation,
+            commands::translate_email_free,
             commands::save_user_profile,
             commands::save_system_settings,
             commands::toggle_contact_star,
@@ -206,6 +212,8 @@ pub fn run() {
             commands::import_contacts_file,
             commands::refresh_imap_folders,
             commands::sync_imap_folder,
+            commands::create_imap_folder,
+            commands::move_email_to_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LinenMail desktop application");

@@ -1,7 +1,6 @@
 export type AppRoute =
   | 'inbox'
   | 'drafts'
-  | 'smart-folders'
   | 'contacts'
   | 'compose'
   | 'account'
@@ -152,6 +151,8 @@ export interface FilterRuleItem {
   conditions?: FilterCondition[];
   hasAttachment?: boolean;
   actionTag?: string | null;
+  actionFolder?: string | null;
+  actionFolderName?: string | null;
   actionArchive?: boolean;
   actionMarkRead?: boolean;
   actionStar?: boolean;
@@ -227,6 +228,22 @@ export interface UserProfile {
   quietNightMode: boolean;
 }
 
+export type TranslationEngine = 'free' | 'ai';
+
+export type TranslationTargetLang = 'zh-CN' | 'en' | 'ja' | 'ko';
+
+export type TranslationTargetPreference = 'auto' | TranslationTargetLang;
+
+export interface EmailTranslationRecord {
+  emailId: string;
+  targetLang: TranslationTargetLang;
+  engine: TranslationEngine;
+  subject: string;
+  paragraphs: string[];
+  providerLabel: string;
+  updatedAt: string;
+}
+
 export interface SystemSettingsState {
   vacationResponder: boolean;
   autoForward: boolean;
@@ -237,6 +254,8 @@ export interface SystemSettingsState {
   desktopNotifications?: boolean;
   cacheBytes?: number;
   dbSizeBytes?: number;
+  translationEngine?: TranslationEngine;
+  translationTargetLang?: TranslationTargetPreference;
 }
 
 export interface SendEmailPayload {

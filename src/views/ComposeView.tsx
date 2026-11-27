@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { RecipientAutocompleteInput } from '../components/RecipientAutocompleteInput';
 import { formatBytes, mailService } from '../services/mailService';
 import {
@@ -11,6 +11,42 @@ import {
   UserProfile,
 } from '../types/mail';
 import { polishEmailDraftWithAi } from '../utils/aiClient';
+
+function getAttachmentSubjectTitle(fileName: string): string {
+  const trimmed = fileName.trim();
+  const dotIdx = trimmed.lastIndexOf('.');
+  if (dotIdx > 0 && trimmed.length - dotIdx <= 10) {
+    return trimmed.slice(0, dotIdx).trim() || trimmed;
+  }
+  return trimmed;
+}
+
+function appendAttachmentTitlesToSubject(
+  currentSubject: string,
+  added: EmailAttachment[],
+  wasAutoSubject: boolean
+): string {
+  const existingLower = currentSubject.toLowerCase();
+  const titles: string[] = [];
+  for (const att of added) {
+    const title = getAttachmentSubjectTitle(att.name);
+    if (!title) continue;
+    const lower = title.toLowerCase();
+    if (
+      !existingLower.includes(lower) &&
+      !titles.some((t) => t.toLowerCase() === lower)
+    ) {
+      titles.push(title);
+    }
+  }
+  if (titles.length === 0) return currentSubject;
+  const joined = titles.join('、');
+  const trimmedCurrent = currentSubject.trim();
+  if (!trimmedCurrent) {
+    return joined;
+  }
+  return wasAutoSubject ? `${trimmedCurrent}、${joined}` : `${trimmedCurrent} - ${joined}`;
+}
 
 interface ComposeViewProps {
   profile: UserProfile;
@@ -77,9 +113,12 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
   const [polishing, setPolishing] = useState(false);
   const [polishModel, setPolishModel] = useState<string | null>(null);
   const [originalDraftBeforePolish, setOriginalDraftBeforePolish] = useState<string | null>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepthRef = useRef(0);
+  const subjectAutoFilledRef = useRef(!(prefill?.subject && prefill.subject.trim().length > 0));
   const pendingSendTimerRef = useRef<number | null>(null);
   const pendingCountdownRef = useRef<number | null>(null);
   const pendingPayloadRef = useRef<{
@@ -89,6 +128,85 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
     body: string;
     attachments: EmailAttachment[];
   } | null>(null);
+
+  const addAttachmentsAndSyncSubject = useCallback((incoming: EmailAttachment[]) => {
+    if (incoming.length === 0) return;
+
+    setAttachments((prev) => {
+      const merged = [...prev];
+      for (const item of incoming) {
+        const isDup = merged.some(
+          (a) =>
+            (item.localPath && a.localPath && a.localPath === item.localPath) ||
+            (a.name === item.name && a.sizeBytes === item.sizeBytes)
+        );
+        if (!isDup) {
+          merged.push(item);
+        }
+      }
+      return merged;
+    });
+
+    setSubject((prev) => {
+      const next = appendAttachmentTitlesToSubject(prev, incoming, subjectAutoFilledRef.current);
+      if (!prev.trim() && next.trim()) {
+        subjectAutoFilledRef.current = true;
+      }
+      return next;
+    });
+
+    setSaveStatus(
+      incoming.length === 1
+        ? `已添加附件「${incoming[0].name}」，并已添加到邮件主题`
+        : `已添加 ${incoming.length} 个附件，并已添加到邮件主题`
+    );
+  }, []);
+
+  // Subscribe to native Tauri v2 OS file drag-and-drop events (Windows Explorer / Desktop -> Compose)
+  useEffect(() => {
+    if (!mailService.isDesktop()) return;
+    let active = true;
+    let unlisten: (() => void) | null = null;
+
+    void mailService
+      .subscribeDragDrop((ev) => {
+        if (!active) return;
+        if (ev.type === 'enter' || ev.type === 'over') {
+          setIsDraggingFiles(true);
+        } else if (ev.type === 'leave') {
+          setIsDraggingFiles(false);
+        } else if (ev.type === 'drop') {
+          setIsDraggingFiles(false);
+          const droppedPaths = ev.paths || [];
+          if (droppedPaths.length === 0) return;
+          void mailService
+            .readAttachmentPaths(droppedPaths)
+            .then((items) => {
+              if (!active) return;
+              if (items.length > 0) {
+                addAttachmentsAndSyncSubject(items);
+              } else {
+                setSaveStatus('未识别到可添加的文件（不支持直接拖入文件夹）');
+              }
+            })
+            .catch(() => {
+              if (active) setSaveStatus('读取拖拽文件失败，请尝试点击「添加附件」选择');
+            });
+        }
+      })
+      .then((fn) => {
+        if (!active) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      });
+
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
+  }, [addAttachmentsAndSyncSubject]);
 
   // Clean up timers on unmount (flush pending send if user navigates away)
   useEffect(() => {
@@ -139,13 +257,53 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
     }, 0);
   };
 
+  const readBrowserFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      const loaded = await Promise.all(
+        files.map(
+          (file) =>
+            new Promise<EmailAttachment>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = typeof reader.result === 'string' ? reader.result : '';
+                const base64 = result.includes(',') ? result.split(',')[1] : '';
+                resolve({
+                  id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  name: file.name,
+                  size: formatBytes(file.size),
+                  sizeBytes: file.size,
+                  mimeType: file.type || 'application/octet-stream',
+                  contentBase64: base64 || null,
+                  cached: true,
+                });
+              };
+              reader.onerror = () => {
+                resolve({
+                  id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  name: file.name,
+                  size: formatBytes(file.size),
+                  sizeBytes: file.size,
+                  mimeType: file.type || 'application/octet-stream',
+                  contentBase64: null,
+                  cached: true,
+                });
+              };
+              reader.readAsDataURL(file);
+            })
+        )
+      );
+      addAttachmentsAndSyncSubject(loaded);
+    },
+    [addAttachmentsAndSyncSubject]
+  );
+
   const handleAddAttachmentClick = async () => {
     if (mailService.isDesktop()) {
       try {
         const picked = await mailService.pickAttachmentFiles();
         if (picked && picked.length > 0) {
-          setAttachments((prev) => [...prev, ...picked]);
-          setSaveStatus(`已添加 ${picked.length} 个本地附件`);
+          addAttachmentsAndSyncSubject(picked);
         }
         return;
       } catch {
@@ -157,30 +315,48 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = typeof reader.result === 'string' ? reader.result : '';
-        const base64 = result.includes(',') ? result.split(',')[1] : '';
-        setAttachments((prev) => [
-          ...prev,
-          {
-            id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            name: file.name,
-            size: formatBytes(file.size),
-            sizeBytes: file.size,
-            mimeType: file.type || 'application/octet-stream',
-            contentBase64: base64 || null,
-            cached: true,
-          },
-        ]);
-        setSaveStatus('草稿已自动保存 · 刚刚');
-      };
-      reader.readAsDataURL(file);
-    });
+    if (files.length > 0) {
+      void readBrowserFiles(files);
+    }
     e.target.value = '';
+  };
+
+  // HTML5 drag-and-drop fallback (for web preview or non-native drops)
+  const handleHtmlDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  };
+
+  const handleHtmlDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleHtmlDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDraggingFiles(false);
+    }
+  };
+
+  const handleHtmlDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+    if (mailService.isDesktop()) {
+      // Desktop native drop is already handled by Tauri onDragDropEvent with full OS paths
+      return;
+    }
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) {
+      void readBrowserFiles(files);
+    }
   };
 
   const handlePolish = async () => {
@@ -351,6 +527,7 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
     setCcList([]);
     setCcInput('');
     setSubject('');
+    subjectAutoFilledRef.current = true;
     setBody('');
     setAttachments([]);
     setOriginalDraftBeforePolish(null);
@@ -361,7 +538,31 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
   };
 
   return (
-    <div className="h-screen w-full overflow-hidden bg-light-surface flex flex-col px-4 py-3 sm:px-6 sm:py-4 gap-3 sm:gap-4">
+    <div
+      onDragEnter={handleHtmlDragEnter}
+      onDragOver={handleHtmlDragOver}
+      onDragLeave={handleHtmlDragLeave}
+      onDrop={handleHtmlDrop}
+      className="relative h-screen w-full overflow-hidden bg-light-surface flex flex-col px-4 py-3 sm:px-6 sm:py-4 gap-3 sm:gap-4"
+    >
+      {/* Full-View External File Drag-and-Drop Overlay */}
+      {isDraggingFiles && (
+        <div className="pointer-events-none fixed inset-0 z-50 bg-light-surface/75 backdrop-blur-[2px] flex items-center justify-center p-8">
+          <div className="w-full max-w-2xl rounded-2xl border-2 border-dashed border-light-primary bg-light-surface-container-lowest/95 px-10 py-14 shadow-[0_24px_64px_-12px_rgba(35,25,20,0.2)] flex flex-col items-center gap-3 text-center">
+            <span className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-light-primary/12 text-light-primary">
+              <span className="material-symbols-outlined text-display-md" aria-hidden="true">
+                upload_file
+              </span>
+            </span>
+            <p className="font-headline text-headline-md text-light-on-surface">
+              松开鼠标，立即添加为邮件附件
+            </p>
+            <p className="font-body text-body-md text-light-on-surface-variant">
+              附件名称将自动添加到邮件主题中（支持同时拖入多个文件）
+            </p>
+          </div>
+        </div>
+      )}
       {/* Contextual Task Flow Header */}
       <header className="shrink-0 w-full bg-light-surface-container-lowest rounded-xl px-4 sm:px-6 py-2.5 sm:py-3 shadow-[0_8px_28px_-6px_rgba(35,25,20,0.06)] flex items-center justify-between gap-4 z-20">
         <div className="flex items-center gap-gutter-md">
@@ -538,9 +739,10 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
               value={subject}
               onChange={(e) => {
                 setSubject(e.target.value);
+                subjectAutoFilledRef.current = e.target.value.trim().length === 0;
                 setSaveStatus('草稿已自动保存 · 刚刚');
               }}
-              placeholder="填写邮件主题..."
+              placeholder="填写邮件主题（添加附件时将自动填入附件名）..."
               className="w-full bg-transparent border-0 p-0 font-headline text-headline-md sm:text-headline-lg text-light-on-surface placeholder:text-light-on-surface-variant focus:ring-0 focus:outline-none"
             />
           </div>
@@ -609,12 +811,17 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
               <button
                 type="button"
                 onClick={handleAddAttachmentClick}
-                className="inline-flex items-center gap-gutter-xs px-gutter-sm py-gutter-xs rounded-full text-light-on-surface-variant hover:bg-light-surface-container hover:text-light-on-surface font-label text-label-md transition-colors duration-state-change cursor-pointer"
+                className="inline-flex items-center gap-gutter-xs px-gutter-md py-gutter-xs rounded-full bg-light-surface-container-lowest text-light-on-surface ring-1 ring-light-outline-variant/40 hover:bg-light-surface-container font-label text-label-md transition-colors duration-state-change cursor-pointer"
               >
-                <span className="material-symbols-outlined text-title-md" aria-hidden="true">
+                <span className="material-symbols-outlined text-title-md text-light-primary" aria-hidden="true">
                   attach_file
                 </span>
                 <span>添加附件</span>
+                {attachments.length > 0 && (
+                  <span className="font-mono text-mono-sm tabular-nums text-light-primary">
+                    {attachments.length}
+                  </span>
+                )}
               </button>
             </div>
 
@@ -710,7 +917,25 @@ export const ComposeView: React.FC<ComposeViewProps> = ({
           <div className="shrink-0 h-px bg-light-surface-container-high" aria-hidden="true" />
 
           {/* Bottom Action & Schedule Bar */}
-          <div className="shrink-0 flex items-center justify-end gap-gutter-md">
+          <div className="shrink-0 flex flex-wrap items-center justify-between gap-gutter-md">
+            <div className="flex items-center gap-gutter-sm min-w-0">
+              <button
+                type="button"
+                onClick={handleAddAttachmentClick}
+                className="inline-flex items-center justify-center gap-gutter-xs px-gutter-md py-gutter-sm rounded-full bg-light-surface-container-low text-light-on-surface hover:bg-light-surface-container transition-colors duration-state-change focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-light-primary cursor-pointer shrink-0"
+              >
+                <span className="material-symbols-outlined text-title-md text-light-primary" aria-hidden="true">
+                  attach_file
+                </span>
+                <span className="font-label text-label-lg">
+                  {attachments.length > 0 ? `添加附件 (${attachments.length})` : '添加附件'}
+                </span>
+              </button>
+              <span className="hidden sm:inline font-label text-label-sm text-light-on-surface-variant truncate">
+                支持从外部直接拖入文件，自动添加文件名到主题
+              </span>
+            </div>
+
             <div className="relative flex items-center gap-gutter-sm">
               <button
                 type="button"

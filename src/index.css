@@ -181,3 +181,13 @@ body,
   background-color: rgba(137, 114, 103, 0.44);
 }
 
+.linen-scroll-x {
+  scrollbar-width: none;
+}
+
+.linen-scroll-x::-webkit-scrollbar {
+  height: 0px;
+  display: none;
+}
+
+

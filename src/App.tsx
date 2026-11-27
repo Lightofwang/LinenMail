@@ -43,7 +43,6 @@ import { ContactsView } from './views/ContactsView';
 import { DraftsView } from './views/DraftsView';
 import { MainInboxView } from './views/MainInboxView';
 import { OnboardingView } from './views/OnboardingView';
-import { SmartFoldersView } from './views/SmartFoldersView';
 import { SystemSettingsView } from './views/SystemSettingsView';
 
 const STORAGE_KEY = 'linenmail_workspace_v2';
@@ -62,6 +61,7 @@ interface PersistedState {
   scheduledEmails?: ScheduledEmailItem[];
   starredContacts?: string[];
   directoryContacts?: DirectoryContact[];
+  imapFolders?: ImapFolderItem[];
 }
 
 function loadWebFallbackState(): PersistedState {
@@ -117,6 +117,7 @@ function loadWebFallbackState(): PersistedState {
         scheduledEmails: parsed.scheduledEmails || [],
         starredContacts: parsed.starredContacts || [],
         directoryContacts: parsed.directoryContacts || [],
+        imapFolders: parsed.imapFolders || [],
       };
     }
   } catch {
@@ -164,7 +165,7 @@ export default function App() {
     initial.scheduledEmails || []
   );
 
-  const [imapFolders, setImapFolders] = useState<ImapFolderItem[]>([]);
+  const [imapFolders, setImapFolders] = useState<ImapFolderItem[]>(initial.imapFolders || []);
   const [refreshingFolders, setRefreshingFolders] = useState<boolean>(false);
   const [syncingFolder, setSyncingFolder] = useState<boolean>(false);
   const [dataDir, setDataDir] = useState<string>('');
@@ -256,6 +257,7 @@ export default function App() {
         scheduledEmails,
         starredContacts,
         directoryContacts,
+        imapFolders,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
@@ -275,6 +277,7 @@ export default function App() {
     scheduledEmails,
     starredContacts,
     directoryContacts,
+    imapFolders,
   ]);
 
   // Browser preview fallback scheduler for scheduled emails
@@ -330,19 +333,7 @@ export default function App() {
     [emails]
   );
 
-  // Dynamically recompute smart folder & label counts from live emails
-  const computedSmartFolders = useMemo(
-    () =>
-      smartFolders.map((sf) => {
-        const matched = emails.filter((e) => e.tag === sf.tag);
-        return {
-          ...sf,
-          total: matched.length,
-          unread: matched.filter((e) => e.unread).length,
-        };
-      }),
-    [smartFolders, emails]
-  );
+  // Dynamically recompute label counts from live emails
 
   const computedLabels = useMemo(
     () =>
@@ -494,6 +485,53 @@ export default function App() {
       setActiveEmailId(firstInFolder.id);
     }
   };
+
+  const handleCreateImapFolder = useCallback(
+    async (folderName: string) => {
+      const created = await mailService.createImapFolder(folderName, defaultAccount?.id);
+      if (mailService.isDesktop()) {
+        await refreshFromSqlite();
+      } else {
+        setImapFolders((prev) =>
+          prev.some((f) => f.id === created.id) ? prev : [created, ...prev]
+        );
+      }
+      setTagFilter(null);
+      setActiveFolder(created.folderKey);
+      setActiveRoute('inbox');
+      setSyncNotice(`已创建文件夹「${created.displayName}」`);
+      setTimeout(() => setSyncNotice(null), 3500);
+    },
+    [defaultAccount?.id, refreshFromSqlite]
+  );
+
+  const handleMoveEmailToFolder = useCallback(
+    async (emailId: string, targetFolderKey: string, targetLabel: string) => {
+      const targetArchived = targetFolderKey === 'archive';
+      setEmails((prev) =>
+        prev.map((m) =>
+          m.id === emailId
+            ? { ...m, folder: targetFolderKey, archived: targetArchived }
+            : m
+        )
+      );
+      try {
+        await mailService.moveEmailToFolder(emailId, targetFolderKey);
+        if (mailService.isDesktop()) {
+          await refreshFromSqlite();
+        }
+        setSyncNotice(`已移入「${targetLabel}」`);
+        setTimeout(() => setSyncNotice(null), 3000);
+      } catch (e) {
+        if (mailService.isDesktop()) {
+          await refreshFromSqlite();
+        }
+        setSyncNotice(`移动邮件失败：${String(e)}`);
+        setTimeout(() => setSyncNotice(null), 4500);
+      }
+    },
+    [refreshFromSqlite]
+  );
 
   const handleSelectImapFolder = (folder: ImapFolderItem) => {
     setTagFilter(null);
@@ -697,32 +735,95 @@ export default function App() {
     return res.message;
   };
 
-  const handleAddFilter = async (rule: FilterRuleItem, applyExisting: boolean) => {
-    if (mailService.isDesktop()) {
-      await mailService.saveFilterRule(rule, applyExisting);
-      await refreshFromSqlite();
-      return;
+  const handleAddFilter = async (
+    rule: FilterRuleItem,
+    applyExisting: boolean
+  ): Promise<number> => {
+    const tagToEnsure = rule.actionTag?.trim();
+    if (tagToEnsure && !labels.some((l) => l.name === tagToEnsure)) {
+      const newLbl: LabelItem = {
+        id: `lbl-${Date.now()}`,
+        name: tagToEnsure,
+        count: 0,
+        dotClass: 'bg-light-primary',
+      };
+      setLabels((prev) => [...prev, newLbl]);
+      void mailService.saveLabel(newLbl.id, newLbl.name, newLbl.dotClass);
     }
 
-    let hitCount = rule.hits;
+    if (mailService.isDesktop()) {
+      const matched = await mailService.saveFilterRule(rule, applyExisting);
+      await refreshFromSqlite();
+      return matched ?? 0;
+    }
+
+    let matched = 0;
     if (applyExisting) {
-      let matched = 0;
+      matched = emails.filter((m) => matchesFilterRule(m, rule)).length;
       setEmails((prev) =>
         prev.map((m) => {
           if (!matchesFilterRule(m, rule)) return m;
-          matched += 1;
           return {
             ...m,
             tag: rule.actionTag || m.tag,
-            archived: rule.actionArchive ? true : m.archived,
+            folder: rule.actionFolder || m.folder,
+            archived: rule.actionFolder
+              ? rule.actionFolder === 'archive'
+              : rule.actionArchive
+              ? true
+              : m.archived,
             unread: rule.actionMarkRead ? false : m.unread,
             starred: rule.actionStar ? true : m.starred,
           };
         })
       );
-      hitCount = matched;
     }
-    setFilters((prev) => [{ ...rule, hits: hitCount }, ...prev]);
+    const nextRule: FilterRuleItem = {
+      ...rule,
+      hits: applyExisting ? matched : rule.hits,
+    };
+    setFilters((prev) =>
+      prev.some((f) => f.id === rule.id)
+        ? prev.map((f) => (f.id === rule.id ? nextRule : f))
+        : [nextRule, ...prev]
+    );
+    return matched;
+  };
+
+  const handleRunFilter = async (id: string): Promise<number> => {
+    if (mailService.isDesktop()) {
+      const matched = await mailService.runFilterRule(id);
+      await refreshFromSqlite();
+      return matched ?? 0;
+    }
+
+    const rule = filters.find((f) => f.id === id);
+    if (!rule) return 0;
+    const matched = emails.filter((m) => matchesFilterRule(m, rule)).length;
+    setEmails((prev) =>
+      prev.map((m) => {
+        if (!matchesFilterRule(m, rule)) return m;
+        return {
+          ...m,
+          tag: rule.actionTag || m.tag,
+          folder: rule.actionFolder || m.folder,
+          archived: rule.actionFolder
+            ? rule.actionFolder === 'archive'
+            : rule.actionArchive
+            ? true
+            : m.archived,
+          unread: rule.actionMarkRead ? false : m.unread,
+          starred: rule.actionStar ? true : m.starred,
+        };
+      })
+    );
+    setFilters((prev) => prev.map((f) => (f.id === id ? { ...f, hits: matched } : f)));
+    return matched;
+  };
+
+  const handleDeleteFilter = (id: string) => {
+    setFilters((prev) => prev.filter((f) => f.id !== id));
+    void mailService.deleteFilterRule(id);
   };
 
   const handleClearCache = async () => {
@@ -823,16 +924,63 @@ export default function App() {
     return (
       <SystemSettingsView
         emails={emails}
+        imapFolders={imapFolders}
         filters={filters}
+        labels={computedLabels}
         llmProfiles={llmProfiles}
         systemSettings={systemSettings}
         onBackToInbox={() => setActiveRoute('inbox')}
         onNavigate={(r) => setActiveRoute(r)}
         onToggleFilter={(id) => {
-          setFilters((prev) => prev.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)));
+          setFilters((prev) =>
+            prev.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f))
+          );
           void mailService.toggleFilterRule(id);
         }}
         onAddFilter={handleAddFilter}
+        onRunFilter={handleRunFilter}
+        onDeleteFilter={handleDeleteFilter}
+        onAddLabel={(name) => {
+          const newLbl: LabelItem = {
+            id: `lbl-${Date.now()}`,
+            name,
+            count: 0,
+            dotClass: 'bg-light-primary',
+          };
+          setLabels((prev) => [...prev, newLbl]);
+          void mailService.saveLabel(newLbl.id, newLbl.name, newLbl.dotClass);
+        }}
+        onRenameLabel={(id, name) => {
+          setLabels((prev) =>
+            prev.map((l) => {
+              if (l.id !== id) return l;
+              void mailService.saveLabel(l.id, name, l.dotClass);
+              return { ...l, name };
+            })
+          );
+        }}
+        onDeleteLabel={(id) => {
+          const target = labels.find((l) => l.id === id);
+          setLabels((prev) => prev.filter((l) => l.id !== id));
+          if (target) {
+            setEmails((prev) =>
+              prev.map((m) => (m.tag === target.name ? { ...m, tag: '' } : m))
+            );
+            if (tagFilter === target.name) {
+              setTagFilter(null);
+            }
+          }
+          void mailService.deleteLabel(id);
+        }}
+        onViewTagInInbox={(tag) => {
+          setTagFilter(tag);
+          setActiveFolder('inbox');
+          setActiveRoute('inbox');
+        }}
+        onViewFolderInInbox={(folderKey) => {
+          setTagFilter(null);
+          handleSelectFolder(folderKey);
+        }}
         onActivateLlm={(id) => {
           setLlmProfiles((prev) => prev.map((p) => ({ ...p, active: p.id === id })));
           void mailService.activateLlmProfile(id);
@@ -866,8 +1014,6 @@ export default function App() {
   const searchPlaceholder =
     activeRoute === 'drafts'
       ? '搜索草稿收件人、主题或正文...'
-      : activeRoute === 'smart-folders'
-      ? '搜索智能文件夹、规则或标签...'
       : activeRoute === 'contacts'
       ? '搜索联系人姓名、拼音首字母、邮箱或附件...'
       : '搜索发件人、主题或关键词...';
@@ -885,11 +1031,7 @@ export default function App() {
     >
       <AppHeader
         activeRoute={activeRoute}
-        activeFolder={activeFolder}
         unreadCount={inboxUnreadCount}
-        draftCount={drafts.length}
-        imapFolders={imapFolders}
-        refreshingFolders={refreshingFolders}
         searchQuery={searchQuery}
         searchPlaceholder={searchPlaceholder}
         userInitial={profile.initial}
@@ -898,12 +1040,15 @@ export default function App() {
         syncing={syncing}
         lastSyncText={lastSyncText}
         onSyncNow={() => void handleSyncNow()}
-        onRefreshFolders={() => void handleRefreshImapFolders()}
-        onSelectFolder={(folder) => {
-          setTagFilter(null);
-          handleSelectFolder(folder);
+        onSelectMailWorkspace={() => {
+          setSearchQuery('');
+          if (activeRoute !== 'inbox' && activeRoute !== 'drafts') {
+            setActiveRoute('inbox');
+          } else if (activeRoute === 'drafts') {
+            setTagFilter(null);
+            handleSelectFolder('inbox');
+          }
         }}
-        onSelectImapFolder={handleSelectImapFolder}
         onNavigate={(route) => {
           setSearchQuery('');
           setActiveRoute(route);
@@ -918,10 +1063,16 @@ export default function App() {
           labels={computedLabels}
           activeFolder={activeFolder}
           activeImapFolder={activeImapFolder}
+          inboxUnreadCount={inboxUnreadCount}
+          draftCount={drafts.length}
+          imapFolders={imapFolders}
+          refreshingFolders={refreshingFolders}
           activeEmailId={activeEmailId}
           searchQuery={searchQuery}
           tagFilter={tagFilter}
           activeLlm={activeLlm}
+          translationEngine={systemSettings.translationEngine || 'free'}
+          translationTargetLang={systemSettings.translationTargetLang || 'auto'}
           enableShortcuts={profile.enableShortcuts}
           minimalReading={profile.minimalReading}
           undoSeconds={profile.undoSeconds}
@@ -941,6 +1092,20 @@ export default function App() {
             activeImapFolder ? () => void handleSyncImapFolder(activeImapFolder) : undefined
           }
           onLoadOlderEmails={() => void handleLoadOlderEmails()}
+          onSelectFolder={(folder) => {
+            setTagFilter(null);
+            handleSelectFolder(folder);
+          }}
+          onSelectDrafts={() => {
+            setSearchQuery('');
+            setActiveRoute('drafts');
+          }}
+          onSelectImapFolder={handleSelectImapFolder}
+          onRefreshFolders={() => void handleRefreshImapFolders()}
+          onCreateFolder={handleCreateImapFolder}
+          onMoveEmailToFolder={(emailId, targetFolderKey, targetLabel) =>
+            void handleMoveEmailToFolder(emailId, targetFolderKey, targetLabel)
+          }
           onDownloadAttachment={handleDownloadAttachment}
           onSelectEmail={handleSelectEmail}
           onClearTagFilter={() => setTagFilter(null)}
@@ -951,6 +1116,7 @@ export default function App() {
           onChangeTag={handleChangeTag}
           onSendQuickReply={handleSendQuickReply}
           onForwardEmail={(prefill) => openCompose(prefill)}
+          onOpenAiSettings={() => setActiveRoute('system-settings')}
         />
       )}
 
@@ -958,6 +1124,18 @@ export default function App() {
         <DraftsView
           drafts={drafts}
           searchQuery={searchQuery}
+          activeFolder={activeFolder}
+          inboxUnreadCount={inboxUnreadCount}
+          imapFolders={imapFolders}
+          refreshingFolders={refreshingFolders}
+          onSelectFolder={(folder) => {
+            setTagFilter(null);
+            handleSelectFolder(folder);
+          }}
+          onSelectDrafts={() => setActiveRoute('drafts')}
+          onSelectImapFolder={handleSelectImapFolder}
+          onRefreshFolders={() => void handleRefreshImapFolders()}
+          onCreateFolder={handleCreateImapFolder}
           onEditDraft={(draft) =>
             openCompose({
               draftId: draft.id,
@@ -970,75 +1148,6 @@ export default function App() {
           }
           onDeleteDraft={(id) => void handleDeleteDraft(id)}
           onNewCompose={() => openCompose(null)}
-        />
-      )}
-
-      {activeRoute === 'smart-folders' && (
-        <SmartFoldersView
-          smartFolders={computedSmartFolders}
-          labels={computedLabels}
-          searchQuery={searchQuery}
-          onToggleFolder={(id) => {
-            setSmartFolders((prev) =>
-              prev.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f))
-            );
-            void mailService.toggleSmartFolder(id);
-          }}
-          onAddFolder={(folder) => {
-            setSmartFolders((prev) => [folder, ...prev]);
-            void mailService.saveSmartFolder(folder);
-          }}
-          onUpdateFolder={(id, name, conditions) => {
-            setSmartFolders((prev) =>
-              prev.map((f) => {
-                if (f.id !== id) return f;
-                const updated = { ...f, name, conditions };
-                void mailService.saveSmartFolder(updated);
-                return updated;
-              })
-            );
-          }}
-          onDeleteFolder={(id) => {
-            setSmartFolders((prev) => prev.filter((f) => f.id !== id));
-            void mailService.deleteSmartFolder(id);
-          }}
-          onAddLabel={(name) => {
-            const newLbl: LabelItem = {
-              id: `lbl-${Date.now()}`,
-              name,
-              count: 0,
-              dotClass: 'bg-light-primary',
-            };
-            setLabels((prev) => [...prev, newLbl]);
-            void mailService.saveLabel(newLbl.id, newLbl.name, newLbl.dotClass);
-          }}
-          onRenameLabel={(id, name) => {
-            setLabels((prev) =>
-              prev.map((l) => {
-                if (l.id !== id) return l;
-                void mailService.saveLabel(l.id, name, l.dotClass);
-                return { ...l, name };
-              })
-            );
-          }}
-          onDeleteLabel={(id) => {
-            const target = labels.find((l) => l.id === id);
-            setLabels((prev) => prev.filter((l) => l.id !== id));
-            if (target) {
-              setEmails((prev) =>
-                prev.map((m) => (m.tag === target.name ? { ...m, tag: '' } : m))
-              );
-              if (tagFilter === target.name) {
-                setTagFilter(null);
-              }
-            }
-            void mailService.deleteLabel(id);
-          }}
-          onViewTagInInbox={(tag) => {
-            setTagFilter(tag);
-            setActiveFolder('inbox');
-            setActiveRoute('inbox');
-          }}
         />
       )}
 
